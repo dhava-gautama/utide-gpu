@@ -29,6 +29,7 @@ default_opts = {
     "verbose": True,
     "epoch": None,
     "gpu": False,
+    "gpu_precision": "double",
 }
 
 
@@ -211,6 +212,12 @@ def solve(t, u, v=None, lat=None, **opts):
         CPU automatically for option combinations not yet supported on the
         GPU (inference, or the linearized-time nodal/phase approximations).
         Default is False.
+    gpu_precision : {'double', 'single'}, optional
+        Precision of the GPU least-squares solve. 'double' (default) matches
+        the CPU result to round-off; 'single' casts the solve to float32 for
+        a large speedup on consumer GPUs whose FP64 throughput is throttled,
+        at reduced precision (~6-7 digits). The harmonic basis is always
+        computed in double precision. Ignored when ``gpu`` is False.
 
     Note
     ----
@@ -245,6 +252,7 @@ def solve_many(
     phase="Greenwich",
     Rayleigh_min=1,
     verbose=True,
+    gpu_precision="double",
 ):
     """
     Vectorized OLS tidal fit for many series sharing one time base.
@@ -273,6 +281,9 @@ def solve_many(
         if CuPy / a CUDA device is unavailable.
     epoch, constit, trend, nodal, phase, Rayleigh_min, verbose
         As in :func:`solve`.
+    gpu_precision : {'double', 'single'}, optional
+        Precision of the batched GPU solve; 'single' is much faster on
+        consumer GPUs at reduced precision. As in :func:`solve`.
 
     Returns
     -------
@@ -340,10 +351,17 @@ def solve_many(
         B = xp.hstack((B, xp.asarray((t - tref) / lor)[:, np.newaxis]))
 
     Xd = xp.asarray(X, dtype=B.dtype)
-    try:
-        M = xp.linalg.lstsq(B, Xd, rcond=None)[0]   # (nm, S)
-    except TypeError:
-        M = xp.linalg.lstsq(B, Xd)[0]
+    if use_gpu and gpu_precision == "single":
+        M = xp.linalg.lstsq(
+            B.astype(xp.complex64),
+            Xd.astype(xp.complex64),
+            rcond=None,
+        )[0].astype(B.dtype)
+    else:
+        try:
+            M = xp.linalg.lstsq(B, Xd, rcond=None)[0]   # (nm, S)
+        except TypeError:
+            M = xp.linalg.lstsq(B, Xd)[0]
     M = asnumpy(M)
 
     ap = M[:nNR]
@@ -490,10 +508,20 @@ def _solv1(tin, uin, vin, lat, **opts):
     if opt.newopts.method == "ols":
         # Model coefficients (on device if use_gpu).
         xraw_solve = xp.asarray(xraw, dtype=B.dtype) if use_gpu else xraw
-        try:
-            m = xp.linalg.lstsq(B, xraw_solve, rcond=None)[0]
-        except TypeError:
-            m = xp.linalg.lstsq(B, xraw_solve)[0]
+        if use_gpu and opt.newopts.gpu_precision == "single":
+            # Accurate FP64 basis, fast FP32 solve (big win on consumer GPUs
+            # whose FP64 is heavily throttled). B itself stays FP64 for the
+            # confidence-interval pipeline below.
+            m = xp.linalg.lstsq(
+                B.astype(xp.complex64),
+                xraw_solve.astype(xp.complex64),
+                rcond=None,
+            )[0].astype(B.dtype)
+        else:
+            try:
+                m = xp.linalg.lstsq(B, xraw_solve, rcond=None)[0]
+            except TypeError:
+                m = xp.linalg.lstsq(B, xraw_solve)[0]
         W = np.ones(nt)  # Uniform weighting; we could use a scalar 1, or None.
         # Return to host for the remaining (CPU) pipeline.
         B = asnumpy(B)
