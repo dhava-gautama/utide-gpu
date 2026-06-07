@@ -5,59 +5,69 @@ Robust MLR via iteratively reweighted least squares.
 
 import numpy as np
 
+from utide._backend import get_array_module
 from utide.utilities import Bunch
 
 
-# Weighting functions:
+# Weighting functions (backend-agnostic: dispatch on the array type of r):
 def andrews(r):
-    r = np.abs(r)
-    r = max(np.sqrt(np.spacing(1)), r)
-    w = (r < np.pi) * np.sin(r) / r
+    xp = get_array_module(r)
+    r = xp.abs(r)
+    r = xp.maximum(np.sqrt(np.spacing(1)), r)
+    w = (r < np.pi) * xp.sin(r) / r
     return w
 
 
 def bisquare(r):
-    r = np.abs(r)
+    xp = get_array_module(r)
+    r = xp.abs(r)
     w = (r < 1) * (1 - r**2) ** 2
     return w
 
 
 def cauchy(r):
-    r = np.abs(r)
+    xp = get_array_module(r)
+    r = xp.abs(r)
     w = 1 / (1 + r**2)
     return w
 
 
 def fair(r):
-    w = 1 / (1 + np.abs(r))
+    xp = get_array_module(r)
+    w = 1 / (1 + xp.abs(r))
     return w
 
 
 def huber(r):
-    w = 1 / max(1, np.abs(r))
+    xp = get_array_module(r)
+    w = 1 / xp.maximum(1, xp.abs(r))
     return w
 
 
 def logistic(r):
-    r = np.abs(r)
-    r = max(np.sqrt(np.single(1)), r)
-    w = np.tanh(r) / r
+    xp = get_array_module(r)
+    r = xp.abs(r)
+    r = xp.maximum(np.sqrt(np.single(1)), r)
+    w = xp.tanh(r) / r
     return w
 
 
 def ols(r):
-    w = np.ones(len(r))
+    xp = get_array_module(r)
+    w = xp.ones(len(r))
     return w
 
 
 def talwar(r):
-    w = (np.abs(r) < 1).astype(float)
+    xp = get_array_module(r)
+    w = (xp.abs(r) < 1).astype(float)
     return w
 
 
 def welsch(r):
-    r = np.abs(r)
-    w = np.exp(-(r**2))
+    xp = get_array_module(r)
+    r = xp.abs(r)
+    w = xp.exp(-(r**2))
     return w
 
 
@@ -90,8 +100,9 @@ def sigma_hat(x):
     """
     Robust estimate of standard deviation based on medians.
     """
+    xp = get_array_module(x)
     # The center could be based on the mean or some other function.
-    return np.median(np.abs(x - np.median(x))) / 0.6745
+    return xp.median(xp.abs(x - xp.median(x))) / 0.6745
 
 
 def leverage(x):
@@ -99,6 +110,7 @@ def leverage(x):
     Calculate leverage as the diagonal of the "Hat" matrix of the
     model matrix, x.
     """
+    xp = get_array_module(x)
 
     # The Hat is x times its pseudo-inverse.
     # In einum, the diagonal is calculated for each row of x
@@ -106,10 +118,10 @@ def leverage(x):
     # and column j of pinv; hence the 'j' in the output means
     # *don't* sum over j.
 
-    hdiag = np.einsum("ij, ij -> j", x.T, np.linalg.pinv(x))
+    hdiag = xp.einsum("ij, ij -> j", x.T, xp.linalg.pinv(x))
     # This should be real and positive, but with floating point
     # arithmetic the imaginary part is not exactly zero.
-    return np.abs(hdiag)
+    return xp.abs(hdiag)
 
 
 def r_normed(R, rfac):
@@ -166,13 +178,15 @@ def robustfit(
 
     """
 
+    xp = get_array_module(X, y)
+
     if tune is None:
         tune = tune_defaults[weight_function]
 
     _wfunc = wfuncdict[weight_function]
 
     if X.ndim == 1:
-        X = X.reshape((x.size, 1))
+        X = X.reshape((X.size, 1))
     n, p = X.shape
 
     lev = leverage(X)
@@ -190,7 +204,7 @@ def robustfit(
     # appendix, and an incorrect version of the following
     # multiplicative factor for scaling the residuals.
 
-    rfac = 1 / (tune * np.sqrt(1 - lev))
+    rfac = 1 / (tune * xp.sqrt(1 - lev))
 
     # We probably only need to keep track of the rmeansq, but
     # it's cheap to carry along rsumsq until we are positive.
@@ -199,12 +213,12 @@ def robustfit(
     oldlstsq = None
     oldw = None
     iterations = 0  # 1-based iteration exit number
-    w = np.ones(y.shape)
+    w = xp.ones(y.shape)
 
     for i in range(maxit):
         wX = w[:, np.newaxis] * X
         wy = w * y
-        b, rsumsq, rank, sing = np.linalg.lstsq(wX, wy, rcond)
+        b, rsumsq, rank, sing = xp.linalg.lstsq(wX, wy, rcond)
         if rsumsq.size:
             rsumsq = rsumsq[0]
         else:
@@ -212,9 +226,9 @@ def robustfit(
             # rank-deficient (e.g. constituents not resolvable over the
             # record); compute it directly so robust fitting still works.
             resid_w = wy - wX @ b
-            rsumsq = np.sum(np.abs(resid_w) ** 2)
+            rsumsq = xp.sum(xp.abs(resid_w) ** 2)
         if i == 0:
-            rms_resid = np.sqrt(rsumsq / n)
+            rms_resid = xp.sqrt(rsumsq / n)
             out.update({"ols_b": b, "ols_rms_resid": rms_resid})
 
         # Weighted mean of squared weighted residuals:
@@ -222,7 +236,7 @@ def robustfit(
 
         if oldrsumsq is not None:
             # improvement = (oldrsumsq - rsumsq) / oldrsumsq
-            improvement = (oldrmeansq - rmeansq) / oldrmeansq
+            improvement = float((oldrmeansq - rmeansq) / oldrmeansq)
             # print("improvement:", improvement)
 
             if improvement < 0:
@@ -243,7 +257,7 @@ def robustfit(
         oldrmeansq = rmeansq
 
         # Residuals (unweighted) from latest fit:
-        resid = y - np.dot(X, b)
+        resid = y - xp.dot(X, b)
 
         # Update weights based on these residuals.
         w = _wfunc(r_normed(resid, rfac))
@@ -251,7 +265,7 @@ def robustfit(
     if iterations == 0:
         iterations = maxit  # Did not converge.
 
-    rms_resid = np.sqrt(np.mean(np.abs(resid) ** 2))
+    rms_resid = xp.sqrt(xp.mean(xp.abs(resid) ** 2))
 
     out.update(
         {

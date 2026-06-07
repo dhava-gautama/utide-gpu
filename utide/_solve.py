@@ -443,7 +443,7 @@ def _solv1(tin, uin, vin, lat, **opts):
     # Select the array backend. The GPU path accelerates basis construction
     # and (for OLS) the least-squares solve; it is used only for the
     # configurations it supports, falling back to NumPy otherwise.
-    from ._backend import asnumpy, get_xp
+    from ._backend import asnumpy, get_xp, is_gpu_array
     from ._harmonics_xp import gpu_supported, ut_E_xp
 
     want_gpu = bool(opt.newopts.gpu)
@@ -527,9 +527,18 @@ def _solv1(tin, uin, vin, lat, **opts):
         # Return to host for the remaining (CPU) pipeline.
         B = asnumpy(B)
         m = asnumpy(m)
-    else:
-        # robustfit is iterative and host-based; bring B back first.
+    elif use_gpu:
+        # Robust IRLS on the device: the whole reweighting loop stays on the
+        # GPU (B is already a device array). Bring results back to the host.
+        rf = robustfit(B, xp.asarray(xraw, dtype=B.dtype), **opt.newopts.robust_kw)
+        m = asnumpy(rf.b)
+        W = asnumpy(rf.w)
+        for _k in list(rf.keys()):
+            if is_gpu_array(rf[_k]):
+                rf[_k] = asnumpy(rf[_k])
+        coef.rf = rf
         B = asnumpy(B)
+    else:
         rf = robustfit(B, xraw, **opt.newopts.robust_kw)
         m = rf.b
         W = rf.w

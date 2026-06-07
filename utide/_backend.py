@@ -52,3 +52,18 @@ def asnumpy(a):
 
 def is_gpu_array(a):
     return type(a).__module__.split(".")[0] == "cupy"
+
+
+def get_array_module(*arrays):
+    """Return ``cupy`` if any argument is a cupy array, else ``numpy``.
+
+    Lets a function be written once and run on either backend, dispatching on
+    the array type of its inputs. cupy is imported only if an input is already
+    a device array (so it must be available).
+    """
+    for a in arrays:
+        if type(a).__module__.split(".")[0] == "cupy":
+            import cupy
+
+            return cupy
+    return np

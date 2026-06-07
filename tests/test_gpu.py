@@ -74,6 +74,23 @@ def test_gpu_single_precision_runs_and_is_close():
     assert np.allclose(dg, 0, atol=0.1)
 
 
+def test_gpu_robust_matches_cpu():
+    # Robust IRLS runs entirely on the device and must match the CPU result.
+    rng = np.random.default_rng(3)
+    t, u, _ = _series()
+    u = u.copy()
+    idx = rng.choice(len(u), 30, replace=False)
+    u[idx] += rng.uniform(-5, 5, 30)  # outliers for the robust weights to act on
+    kw = dict(lat=45, constit=CONSTIT, method="robust", conf_int="none",
+              epoch=EPOCH, verbose=False)
+    c0 = solve(t, u, **kw)
+    c1 = solve(t, u, gpu=True, **kw)
+    order = [list(c1["name"]).index(n) for n in c0["name"]]
+    big = c0["A"] > 0.05
+    assert c0["rf"].iterations == c1["rf"].iterations
+    assert np.allclose(c0["A"][big], c1["A"][order][big], rtol=1e-4, atol=1e-6)
+
+
 def test_gpu_fallback_unsupported_option():
     # nodal=False is not the GPU basis path; must fall back and still be correct.
     t, u, _ = _series()
