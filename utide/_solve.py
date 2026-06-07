@@ -256,6 +256,7 @@ def solve_many(
     Rayleigh_min=1,
     verbose=True,
     gpu_precision="double",
+    chunk_size=None,
 ):
     """
     Vectorized OLS tidal fit for many series sharing one time base.
@@ -287,6 +288,11 @@ def solve_many(
     gpu_precision : {'double', 'single'}, optional
         Precision of the batched GPU solve; 'single' is much faster on
         consumer GPUs at reduced precision. As in :func:`solve`.
+    chunk_size : int or None, optional
+        Maximum number of series solved per device call. ``None`` (default)
+        picks a size from free GPU memory so very large ``S`` (or long
+        records) does not exhaust VRAM; the model matrix stays resident while
+        series stream through. Ignored on the CPU.
 
     Returns
     -------
@@ -361,14 +367,32 @@ def solve_many(
         tc = xp.asarray((t - tref) / lor)[:, np.newaxis].astype(E.real.dtype)
         B_full = xp.hstack((B_full, tc))
 
-    def _solve_group(rows, cols):
-        Bg = B_full if rows.all() else B_full[xp.asarray(np.flatnonzero(rows))]
-        Xg = xp.asarray(X[np.ix_(rows, cols)], dtype=B_full.dtype)
+    def _auto_chunk(nrows):
+        # Columns per solve, bounded so X-on-device + lstsq workspace fit VRAM.
+        if not use_gpu:
+            return 1 << 30  # host RAM: no chunking needed
+        free, _total = xp.cuda.runtime.memGetInfo()
+        per_col = nrows * B_full.dtype.itemsize * 4  # X + workspace headroom
+        budget = max(int(free * 0.25), 64 << 20)
+        return max(1, budget // per_col)
+
+    def _one_solve(Bg, rows, sub):
+        Xg = xp.asarray(X[np.ix_(rows, sub)], dtype=B_full.dtype)
         try:
             Mg = xp.linalg.lstsq(Bg, Xg, rcond=None)[0]
         except TypeError:
             Mg = xp.linalg.lstsq(Bg, Xg)[0]
-        Mg = asnumpy(Mg)
+        return asnumpy(Mg)
+
+    def _solve_group(rows, cols):
+        Bg = B_full if rows.all() else B_full[xp.asarray(np.flatnonzero(rows))]
+        cc = chunk_size or _auto_chunk(Bg.shape[0])
+        if len(cols) <= cc:
+            Mg = _one_solve(Bg, rows, cols)
+        else:
+            parts = [_one_solve(Bg, rows, cols[i : i + cc])
+                     for i in range(0, len(cols), cc)]
+            Mg = np.concatenate(parts, axis=1)
         return Mg.astype(np.complex128) if Mg.dtype == np.complex64 else Mg
 
     # Solve, batching stations that share the same valid-sample mask so the

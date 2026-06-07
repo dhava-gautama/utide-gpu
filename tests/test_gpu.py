@@ -124,6 +124,19 @@ def test_solve_many_gappy():
     assert np.all(np.isnan(om2.A[:, 0]))
 
 
+def test_solve_many_chunked_matches_unchunked():
+    # Forcing a small chunk size must give the same result as one big solve.
+    rng = np.random.default_rng(7)
+    t, u, _ = _series()
+    X = np.column_stack([(0.5 + 0.2 * i) * u for i in range(20)])
+    X = X + 0.05 * rng.standard_normal(X.shape)
+    kw = dict(lat=45, constit=CONSTIT, gpu=True, epoch=EPOCH, verbose=False)
+    a = solve_many(t, X, **kw)
+    b = solve_many(t, X, chunk_size=3, **kw)  # 20 series -> 7 chunks
+    assert np.allclose(a.A, b.A, rtol=1e-6, atol=1e-8, equal_nan=True)
+    assert np.allclose(a.g, b.g, rtol=1e-6, atol=1e-8, equal_nan=True)
+
+
 def test_solve_many_matches_solve():
     t, u, _ = _series()
     X = np.column_stack([u, 0.7 * u, 1.3 * u])
