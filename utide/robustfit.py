@@ -205,7 +205,14 @@ def robustfit(
         wX = w[:, np.newaxis] * X
         wy = w * y
         b, rsumsq, rank, sing = np.linalg.lstsq(wX, wy, rcond)
-        rsumsq = rsumsq[0]
+        if rsumsq.size:
+            rsumsq = rsumsq[0]
+        else:
+            # lstsq omits the residual sum when the design matrix is
+            # rank-deficient (e.g. constituents not resolvable over the
+            # record); compute it directly so robust fitting still works.
+            resid_w = wy - wX @ b
+            rsumsq = np.sum(np.abs(resid_w) ** 2)
         if i == 0:
             rms_resid = np.sqrt(rsumsq / n)
             out.update({"ols_b": b, "ols_rms_resid": rms_resid})
