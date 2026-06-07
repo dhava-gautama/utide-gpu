@@ -62,10 +62,18 @@ ssh dhava@100.118.127.87 'cd ~/utide-gpu && source venv/bin/activate && \
   `solve` to ~1e-14). No-gap or shared-gap data = 1 group (fast, 1000 series 0.6s);
   worst case of 1000 fully-distinct gap patterns ~11.5s (still ~10x vs naive loop).
 
+- VRAM chunking in `solve_many` (`chunk_size`, auto from free VRAM): the model
+  matrix stays resident while series stream through, so very large S doesn't OOM
+  (S=20000 fine; chunked result identical to unchunked, ~1e-15). Chunks over
+  *series*, not time -- a single huge-nt series whose basis won't fit is still
+  unhandled (see TODO).
+
 ## TODO before any publish (hardening)
-- Larger-than-VRAM chunking for huge nt or S.
-- Confidence intervals + inference on the GPU path (currently host).
-- solve_many many-distinct-groups case is loop-bound (1000 small lstsq launches);
+- Time-axis chunking for a single series with huge nt (basis intermediates won't
+  fit); would need normal-equations accumulation, FP64 only for stability.
+- Confidence intervals + inference on the GPU path -- low value (CIs are ~1% of
+  runtime and the per-constituent loop is scalar-heavy; better left on host).
+- solve_many many-distinct-groups case is loop-bound (small lstsq launches);
   could batch equal-sized groups if it matters.
 
 This `gpu_work/` dir is scratch (benchmarks/validation), not part of the package.
