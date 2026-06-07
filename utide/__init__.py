@@ -1,5 +1,5 @@
 from ._reconstruct import reconstruct
-from ._solve import solve
+from ._solve import solve, solve_many
 from ._ut_constants import (
     constit_index_dict,
     cycles_per_hour,
@@ -14,6 +14,7 @@ except ImportError:
 
 __all__ = [
     "solve",
+    "solve_many",
     "reconstruct",
     "ut_constants",
     "constit_index_dict",

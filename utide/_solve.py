@@ -28,6 +28,7 @@ default_opts = {
     "white": False,
     "verbose": True,
     "epoch": None,
+    "gpu": False,
 }
 
 
@@ -203,6 +204,13 @@ def solve(t, u, v=None, lat=None, **opts):
         assume a white background spectrum.
     verbose : {True, False}, optional
         True (default) turns on verbose output. False emits no messages.
+    gpu : {False, True}, optional
+        If True, run basis construction and (for ``method='ols'``) the
+        least-squares solve on the GPU via CuPy, returning results on the
+        host. Requires CuPy with a working CUDA device. Falls back to the
+        CPU automatically for option combinations not yet supported on the
+        GPU (inference, or the linearized-time nodal/phase approximations).
+        Default is False.
 
     Note
     ----
@@ -222,6 +230,161 @@ def solve(t, u, v=None, lat=None, **opts):
     coef = _solv1(t, u, v, lat, **compat_opts)
 
     return coef
+
+
+def solve_many(
+    t,
+    u,
+    v=None,
+    lat=None,
+    gpu=True,
+    epoch=None,
+    constit="auto",
+    trend=True,
+    nodal=True,
+    phase="Greenwich",
+    Rayleigh_min=1,
+    verbose=True,
+):
+    """
+    Vectorized OLS tidal fit for many series sharing one time base.
+
+    Batch counterpart to :func:`solve`. Given ``S`` series sampled at the
+    same times ``t``, it builds the harmonic model **once** and solves all
+    series in a single (optionally GPU) least-squares call -- far faster than
+    looping :func:`solve` over each series. Returns amplitudes and Greenwich
+    phases per constituent per series.
+
+    Confidence intervals, robust fitting, and inference are **not** computed
+    here; use :func:`solve` per series for those.
+
+    Parameters
+    ----------
+    t : array_like (nt,)
+        Times shared by every series (days since ``epoch``, or datetime-like).
+    u : array_like (nt,) or (nt, S)
+        One or more scalar series (columns are series).
+    v : array_like, optional
+        Orthogonal component(s), same shape as ``u``, for a 2-D (u, v) fit.
+    lat : float
+        Latitude in degrees (required).
+    gpu : bool, optional
+        Use the CuPy backend if available (default True). Falls back to NumPy
+        if CuPy / a CUDA device is unavailable.
+    epoch, constit, trend, nodal, phase, Rayleigh_min, verbose
+        As in :func:`solve`.
+
+    Returns
+    -------
+    out : `Bunch`
+        ``name`` (nc,), ``frq`` (nc,), and per-series results shaped ``(nc, S)``:
+        ``A`` and ``g`` for scalar input, or ``Lsmaj``, ``Lsmin``, ``theta``,
+        ``g`` for (u, v) input. Also ``mean`` (S,) [or ``umean``/``vmean``],
+        and ``slope`` (S,) [or ``uslope``/``vslope``] when ``trend`` is True.
+
+    Notes
+    -----
+    Rows where ``t`` or **any** series is NaN are dropped from the shared
+    solve. For per-series gaps, fall back to :func:`solve`.
+    """
+    from ._backend import asnumpy, get_xp
+    from ._harmonics_xp import gpu_supported, ut_E_xp
+
+    if lat is None:
+        raise ValueError("Latitude must be supplied")
+
+    t = _normalize_time(np.atleast_1d(t), epoch).astype(float)
+    twodim = v is not None
+    u = np.atleast_1d(u)
+    U = u[:, np.newaxis] if u.ndim == 1 else u
+    if twodim:
+        v = np.atleast_1d(v)
+        V = v[:, np.newaxis] if v.ndim == 1 else v
+        X = U + 1j * V
+    else:
+        X = U.astype(float)
+
+    # Shared good-row mask across t and all series.
+    good = np.isfinite(t) & np.isfinite(X).all(axis=1)
+    t = t[good]
+    X = X[good]
+    nt, S = X.shape
+
+    lor = np.ptp(t)
+    tref = 0.5 * (t[0] + t[-1])
+
+    # Translate the nodal/phase flags to ngflgs (mirrors _translate_opts).
+    ngflgs = [
+        nodal == "linear_time",
+        not nodal,
+        phase == "linear_time",
+        phase == "raw",
+    ]
+
+    cnstit, coef = ut_cnstitsel(tref, Rayleigh_min / (24 * lor), constit, None)
+    nNR = coef.nNR
+
+    use_gpu = bool(gpu) and gpu_supported(ngflgs)
+    xp = get_xp(use_gpu)
+    if verbose:
+        where = "gpu" if use_gpu else "cpu"
+        print(f"solve_many: {S} series, {nNR} constituents, {nt} times [{where}] ...")
+
+    if use_gpu:
+        E = ut_E_xp(xp, xp.asarray(t), tref, cnstit.NR.frq, cnstit.NR.lind, lat, ngflgs)
+    else:
+        E = ut_E(t, tref, cnstit.NR.frq, cnstit.NR.lind, lat, ngflgs, [])
+
+    B = xp.hstack((E, E.conj(), xp.ones((nt, 1))))
+    if trend:
+        B = xp.hstack((B, xp.asarray((t - tref) / lor)[:, np.newaxis]))
+
+    Xd = xp.asarray(X, dtype=B.dtype)
+    try:
+        M = xp.linalg.lstsq(B, Xd, rcond=None)[0]   # (nm, S)
+    except TypeError:
+        M = xp.linalg.lstsq(B, Xd)[0]
+    M = asnumpy(M)
+
+    ap = M[:nNR]
+    am = M[nNR : 2 * nNR]
+    Xu = np.real(ap + am)
+    Yu = -np.imag(ap - am)
+
+    out = Bunch(
+        name=coef.name,
+        frq=coef.aux.frq,
+        lat=lat,
+        nseries=S,
+    )
+    if not twodim:
+        A, _, _, g = ut_cs2cep(Xu, Yu)
+        out.A, out.g = A, g
+        if trend:
+            out.mean = np.real(M[-2])
+            out.slope = np.real(M[-1]) / lor
+        else:
+            out.mean = np.real(M[-1])
+    else:
+        Xv = np.imag(ap + am)
+        Yv = np.real(ap - am)
+        Lsmaj, Lsmin, theta, g = ut_cs2cep(Xu, Yu, Xv, Yv)
+        out.Lsmaj, out.Lsmin, out.theta, out.g = Lsmaj, Lsmin, theta, g
+        if trend:
+            out.umean = np.real(M[-2])
+            out.vmean = np.imag(M[-2])
+            out.uslope = np.real(M[-1]) / lor
+            out.vslope = np.imag(M[-1]) / lor
+        else:
+            out.umean = np.real(M[-1])
+            out.vmean = np.imag(M[-1])
+
+    if u.ndim == 1:
+        # collapse singleton series axis for convenience
+        for k in ("A", "g", "Lsmaj", "Lsmin", "theta"):
+            if k in out:
+                out[k] = out[k][:, 0]
+    return out
 
 
 def _solv1(tin, uin, vin, lat, **opts):
@@ -254,11 +417,27 @@ def _solv1(tin, uin, vin, lat, **opts):
 
     E_args = (lat, ngflgs, opt.prefilt)
 
+    # Select the array backend. The GPU path accelerates basis construction
+    # and (for OLS) the least-squares solve; it is used only for the
+    # configurations it supports, falling back to NumPy otherwise.
+    from ._backend import asnumpy, get_xp
+    from ._harmonics_xp import gpu_supported, ut_E_xp
+
+    want_gpu = bool(opt.newopts.gpu)
+    use_gpu = want_gpu and opt.infer is None and gpu_supported(ngflgs)
+    if want_gpu and not use_gpu and opt["RunTimeDisp"]:
+        print("(gpu unsupported for these options; using cpu) ", end="")
+    xp = get_xp(use_gpu)
+
     # Make the model array, starting with the harmonics.
-    E = ut_E(t, tref, cnstit.NR.frq, cnstit.NR.lind, *E_args)
+    if use_gpu:
+        t_dev = xp.asarray(t)
+        E = ut_E_xp(xp, t_dev, tref, cnstit.NR.frq, cnstit.NR.lind, lat, ngflgs)
+    else:
+        E = ut_E(t, tref, cnstit.NR.frq, cnstit.NR.lind, *E_args)
 
     # Positive and negative frequencies
-    B = np.hstack((E, E.conj()))
+    B = xp.hstack((E, E.conj()))
 
     if opt.infer is not None:
         Etilp = np.empty((nt, coef.nR), dtype=complex)
@@ -293,10 +472,10 @@ def _solv1(tin, uin, vin, lat, **opts):
         B = np.hstack((B, Etilp, np.conj(Etilm)))
 
     # add the mean
-    B = np.hstack((B, np.ones((nt, 1))))
+    B = xp.hstack((B, xp.ones((nt, 1))))
 
     if not opt["notrend"]:
-        B = np.hstack((B, ((t - tref) / lor)[:, np.newaxis]))
+        B = xp.hstack((B, xp.asarray((t - tref) / lor)[:, np.newaxis]))
 
     # nm = B.shape[1]  # 2*(nNR + nR) + 1, plus 1 if trend is included.
 
@@ -309,13 +488,19 @@ def _solv1(tin, uin, vin, lat, **opts):
         xraw = u
 
     if opt.newopts.method == "ols":
-        # Model coefficients.
+        # Model coefficients (on device if use_gpu).
+        xraw_solve = xp.asarray(xraw, dtype=B.dtype) if use_gpu else xraw
         try:
-            m = np.linalg.lstsq(B, xraw, rcond=None)[0]
+            m = xp.linalg.lstsq(B, xraw_solve, rcond=None)[0]
         except TypeError:
-            m = np.linalg.lstsq(B, xraw)[0]
+            m = xp.linalg.lstsq(B, xraw_solve)[0]
         W = np.ones(nt)  # Uniform weighting; we could use a scalar 1, or None.
+        # Return to host for the remaining (CPU) pipeline.
+        B = asnumpy(B)
+        m = asnumpy(m)
     else:
+        # robustfit is iterative and host-based; bring B back first.
+        B = asnumpy(B)
         rf = robustfit(B, xraw, **opt.newopts.robust_kw)
         m = rf.b
         W = rf.w
