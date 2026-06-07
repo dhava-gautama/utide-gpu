@@ -213,11 +213,14 @@ def solve(t, u, v=None, lat=None, **opts):
         GPU (inference, or the linearized-time nodal/phase approximations).
         Default is False.
     gpu_precision : {'double', 'single'}, optional
-        Precision of the GPU least-squares solve. 'double' (default) matches
-        the CPU result to round-off; 'single' casts the solve to float32 for
-        a large speedup on consumer GPUs whose FP64 throughput is throttled,
-        at reduced precision (~6-7 digits). The harmonic basis is always
-        computed in double precision. Ignored when ``gpu`` is False.
+        Precision of the GPU computation. 'double' (default) matches the CPU
+        result to round-off. 'single' runs the harmonic basis and the solve
+        in float32 (the astronomical-argument reduction stays float64 for
+        phase accuracy) for a large speedup on consumer GPUs whose FP64
+        throughput is throttled, at reduced precision -- typically 3-5
+        significant digits in amplitude, ~0.005 deg in phase, and worse for
+        large batches or ill-conditioned fits. Use it for screening, not for
+        final-precision results. Ignored when ``gpu`` is False.
 
     Note
     ----
@@ -341,28 +344,30 @@ def solve_many(
         where = "gpu" if use_gpu else "cpu"
         print(f"solve_many: {S} series, {nNR} constituents, {nt} times [{where}] ...")
 
+    gpu_single = use_gpu and gpu_precision == "single"
     if use_gpu:
-        E = ut_E_xp(xp, xp.asarray(t), tref, cnstit.NR.frq, cnstit.NR.lind, lat, ngflgs)
+        E = ut_E_xp(
+            xp, xp.asarray(t), tref, cnstit.NR.frq, cnstit.NR.lind, lat, ngflgs,
+            precision="single" if gpu_single else "double",
+        )
     else:
         E = ut_E(t, tref, cnstit.NR.frq, cnstit.NR.lind, lat, ngflgs, [])
 
-    B = xp.hstack((E, E.conj(), xp.ones((nt, 1))))
+    # Mean (& trend) columns match B's real dtype so a complex64 basis (single
+    # precision) stays complex64 and the batched solve runs in float32.
+    B = xp.hstack((E, E.conj(), xp.ones((nt, 1), dtype=E.real.dtype)))
     if trend:
-        B = xp.hstack((B, xp.asarray((t - tref) / lor)[:, np.newaxis]))
+        trend_col = xp.asarray((t - tref) / lor)[:, np.newaxis].astype(E.real.dtype)
+        B = xp.hstack((B, trend_col))
 
     Xd = xp.asarray(X, dtype=B.dtype)
-    if use_gpu and gpu_precision == "single":
-        M = xp.linalg.lstsq(
-            B.astype(xp.complex64),
-            Xd.astype(xp.complex64),
-            rcond=None,
-        )[0].astype(B.dtype)
-    else:
-        try:
-            M = xp.linalg.lstsq(B, Xd, rcond=None)[0]   # (nm, S)
-        except TypeError:
-            M = xp.linalg.lstsq(B, Xd)[0]
+    try:
+        M = xp.linalg.lstsq(B, Xd, rcond=None)[0]   # (nm, S)
+    except TypeError:
+        M = xp.linalg.lstsq(B, Xd)[0]
     M = asnumpy(M)
+    if M.dtype == np.complex64:
+        M = M.astype(np.complex128)
 
     ap = M[:nNR]
     am = M[nNR : 2 * nNR]
@@ -448,9 +453,13 @@ def _solv1(tin, uin, vin, lat, **opts):
     xp = get_xp(use_gpu)
 
     # Make the model array, starting with the harmonics.
+    gpu_single = use_gpu and opt.newopts.gpu_precision == "single"
     if use_gpu:
         t_dev = xp.asarray(t)
-        E = ut_E_xp(xp, t_dev, tref, cnstit.NR.frq, cnstit.NR.lind, lat, ngflgs)
+        E = ut_E_xp(
+            xp, t_dev, tref, cnstit.NR.frq, cnstit.NR.lind, lat, ngflgs,
+            precision="single" if gpu_single else "double",
+        )
     else:
         E = ut_E(t, tref, cnstit.NR.frq, cnstit.NR.lind, *E_args)
 
@@ -489,11 +498,12 @@ def _solv1(tin, uin, vin, lat, **opts):
 
         B = np.hstack((B, Etilp, np.conj(Etilm)))
 
-    # add the mean
-    B = xp.hstack((B, xp.ones((nt, 1))))
+    # add the mean (match B's real dtype so a complex64 basis stays complex64)
+    B = xp.hstack((B, xp.ones((nt, 1), dtype=B.real.dtype)))
 
     if not opt["notrend"]:
-        B = xp.hstack((B, xp.asarray((t - tref) / lor)[:, np.newaxis]))
+        trend_col = xp.asarray((t - tref) / lor)[:, np.newaxis].astype(B.real.dtype)
+        B = xp.hstack((B, trend_col))
 
     # nm = B.shape[1]  # 2*(nNR + nR) + 1, plus 1 if trend is included.
 
@@ -506,22 +516,13 @@ def _solv1(tin, uin, vin, lat, **opts):
         xraw = u
 
     if opt.newopts.method == "ols":
-        # Model coefficients (on device if use_gpu).
+        # Model coefficients (on device if use_gpu). In single-precision GPU
+        # mode B is already complex64, so the solve runs in float32 here.
         xraw_solve = xp.asarray(xraw, dtype=B.dtype) if use_gpu else xraw
-        if use_gpu and opt.newopts.gpu_precision == "single":
-            # Accurate FP64 basis, fast FP32 solve (big win on consumer GPUs
-            # whose FP64 is heavily throttled). B itself stays FP64 for the
-            # confidence-interval pipeline below.
-            m = xp.linalg.lstsq(
-                B.astype(xp.complex64),
-                xraw_solve.astype(xp.complex64),
-                rcond=None,
-            )[0].astype(B.dtype)
-        else:
-            try:
-                m = xp.linalg.lstsq(B, xraw_solve, rcond=None)[0]
-            except TypeError:
-                m = xp.linalg.lstsq(B, xraw_solve)[0]
+        try:
+            m = xp.linalg.lstsq(B, xraw_solve, rcond=None)[0]
+        except TypeError:
+            m = xp.linalg.lstsq(B, xraw_solve)[0]
         W = np.ones(nt)  # Uniform weighting; we could use a scalar 1, or None.
         # Return to host for the remaining (CPU) pipeline.
         B = asnumpy(B)
@@ -533,6 +534,11 @@ def _solv1(tin, uin, vin, lat, **opts):
         m = rf.b
         W = rf.w
         coef.rf = rf
+    # Promote a single-precision (complex64) GPU result to complex128 for the
+    # host confidence/diagnostics pipeline, which expects double precision.
+    if B.dtype == np.complex64:
+        B = B.astype(np.complex128)
+        m = np.asarray(m).astype(np.complex128)
     coef.weights = W
 
     xmod = np.dot(B, m)  # Model fit.
