@@ -9,6 +9,10 @@ Python re-implementation of the Matlab package UTide.
 
 Still in heavy development\--everything is subject to change!
 
+> **utide-gpu fork:** this fork adds an optional GPU (CuPy) backend and a
+> batched `solve_many` solver on top of upstream UTide; see
+> [GPU acceleration](#gpu-acceleration) below. The CPU behaviour is unchanged.
+
 Note: the user interface differs from the Matlab version, so consult the
 Python function docstrings to see how to specify parameters. Some
 functionality from the Matlab version is not yet available. For more
@@ -62,3 +66,38 @@ coef = solve(
 For more examples see the
 [notebooks](https://nbviewer.jupyter.org/github/wesleybowman/UTide/tree/master/notebooks/)
 folder.
+
+# GPU acceleration
+
+This fork adds an **optional GPU backend** (via [CuPy](https://cupy.dev)) and a
+**batched** solver, on top of the standard UTide API. The GPU is strictly
+opt-in; with `gpu=False` the CPU path is byte-identical to upstream.
+
+```python
+from utide import solve, solve_many
+
+# Single series on the GPU (results returned on the host, identical to CPU):
+coef = solve(t, h, lat=45, method="ols", conf_int="linear", gpu=True)
+
+# Many series sharing one time base, fit in a single batched solve:
+out = solve_many(t, X, lat=45, gpu=True)          # X is (ntimes, nseries)
+
+# Optional single precision for a large extra speedup on consumer GPUs:
+out = solve_many(t, X, lat=45, gpu=True, gpu_precision="single")
+```
+
+Highlights:
+
+- `solve(..., gpu=True)` accelerates harmonic-basis construction (the dominant
+  cost) and the least-squares solve, with automatic CPU fallback for the option
+  combinations not yet supported on the GPU. Robust fitting
+  (`method="robust"`) also runs on the device.
+- `solve_many` fits many series with a shared time base in one solve\--far
+  faster than looping `solve`\--and handles per-series gaps and streams large
+  batches within available GPU memory.
+- `gpu_precision="single"` runs the basis and solve in float32 for a large
+  speedup where the GPU's double-precision throughput is limited, at reduced
+  numerical precision (intended for screening, not final-precision work).
+
+Requires CuPy with a working CUDA device, e.g. `pip install cupy-cuda12x`. If
+CuPy is not installed, importing and using UTide on the CPU is unaffected.
