@@ -56,9 +56,16 @@ ssh dhava@100.118.127.87 'cd ~/utide-gpu && source venv/bin/activate && \
   which happens with collinear/unresolvable constituents; `rsumsq[0]` then raised IndexError.
   Now the residual sum is computed directly in that case. `tests/test_robustfit.py`.)
 
+- Gappy/masked batch input in `solve_many`: series are grouped by valid-sample
+  pattern and each group solved on its own rows (subselected from one shared basis
+  build); all-NaN / under-determined series return NaN. Exact (matches per-series
+  `solve` to ~1e-14). No-gap or shared-gap data = 1 group (fast, 1000 series 0.6s);
+  worst case of 1000 fully-distinct gap patterns ~11.5s (still ~10x vs naive loop).
+
 ## TODO before any publish (hardening)
-- Gappy/masked batch input in `solve_many` (currently drops shared-NaN rows).
 - Larger-than-VRAM chunking for huge nt or S.
 - Confidence intervals + inference on the GPU path (currently host).
+- solve_many many-distinct-groups case is loop-bound (1000 small lstsq launches);
+  could batch equal-sized groups if it matters.
 
 This `gpu_work/` dir is scratch (benchmarks/validation), not part of the package.
