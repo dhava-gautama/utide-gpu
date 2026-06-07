@@ -26,11 +26,13 @@ out = utide.solve_many(t, X, lat=45, gpu=True)   # out.A, out.g are (nc, S)
 - Basis construction (`ut_E`) is ~75-80% of `solve` time; GPU 1.3×(1yr)→8.7×(100yr).
 - `solve(gpu=True)`: ~3.3× end-to-end at 10yr hourly.
 - `solve_many`: 498× (1000 stations) / 691× (5000) vs naive per-series loop.
-- Consumer-GPU FP64 is weak: complex128 lstsq alone is ~break-even, FP32 lstsq is 7-10×.
-  But end-to-end `gpu_precision='single'` only gives ~2.2× at S=1000 and ~1.1× at S=5000,
-  because the (FP64) basis build + host transfers dominate, not the solve. Precision cost:
-  single-series ~9e-5 rel on amplitudes; batched ~1e-3 (S=1000) to ~7e-3 (S=5000). Use it
-  for quick screening, not when you need full precision.
+- Consumer-GPU FP64 is heavily throttled (the complex matmul in the basis is ~40× slower
+  in FP64 than FP32 on the 4060). `gpu_precision='single'` now runs BOTH the basis (mixed:
+  FP64 astronomical reduction, FP32 matmul/transcendentals) and the solve in float32:
+  - basis build alone: ~4-4.6× faster than FP64.
+  - `solve_many`: ~2.4× at S=1000, ~9.8× at S=5000 (the FP32 basis removed the bottleneck).
+  - precision cost: single-series ~1e-4 rel amp / ~0.005° phase; batched ~1.5e-3 (S=1000)
+    to ~4.5e-3 (S=5000). Screening, not final-precision work.
 
 ## Run the benchmarks/validation (on the WSL GPU box)
 ```bash
@@ -41,14 +43,14 @@ ssh dhava@100.118.127.87 'cd ~/utide-gpu && source venv/bin/activate && \
 ```
 
 ## Done (hardening, 2026-06-08)
-- FP32 opt-in: `gpu_precision='single'` on `solve`/`solve_many` (modest benefit, see above).
+- FP32 opt-in: `gpu_precision='single'` runs the mixed-precision basis + FP32 solve on
+  `solve`/`solve_many`. Big batch win (up to ~10×); see measured numbers above.
 - Fixed `robustfit` crash on rank-deficient design matrices. (Root cause was *not* rcond=1
   as first thought — it's that `np.linalg.lstsq` omits the residual sum when rank < ncols,
   which happens with collinear/unresolvable constituents; `rsumsq[0]` then raised IndexError.
   Now the residual sum is computed directly in that case. `tests/test_robustfit.py`.)
 
 ## TODO before any publish (hardening)
-- Build the basis itself in FP32 (it dominates; biggest remaining lever, needs FP32 tables).
 - GPU robust method (IRLS currently runs on host).
 - Gappy/masked batch input in `solve_many` (currently drops shared-NaN rows).
 - Larger-than-VRAM chunking for huge nt or S.
