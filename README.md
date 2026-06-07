@@ -29,20 +29,34 @@ information see:
 
 # Installation
 
+This fork provides the full upstream UTide API **plus** the optional GPU
+backend and `solve_many`, and installs as the `utide` package. Install it from
+source:
+
 ``` shell
-pip install utide
+pip install git+https://github.com/dhava-gautama/utide-gpu.git
 ```
 
-If you are using conda,
+For the GPU features, also install CuPy for your CUDA version. This is
+optional\--without it everything runs on the CPU exactly as upstream:
 
 ``` shell
+pip install cupy-cuda12x      # or cupy-cuda11x, etc., to match your CUDA
+```
+
+The upstream, CPU-only package is on PyPI and conda-forge if you do not need
+the GPU additions:
+
+``` shell
+pip install utide
+# or
 conda install utide --channel conda-forge
 ```
 
 The public functions can be imported using
 
 ```python
-from utide import solve, reconstruct
+from utide import solve, solve_many, reconstruct
 ```
 
 A sample call would be
