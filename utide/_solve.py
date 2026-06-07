@@ -298,8 +298,12 @@ def solve_many(
 
     Notes
     -----
-    Rows where ``t`` or **any** series is NaN are dropped from the shared
-    solve. For per-series gaps, fall back to :func:`solve`.
+    Per-series gaps are supported: series are grouped by their valid-sample
+    pattern and each group is solved with its own model matrix (no-gap data is
+    a single group, the fast path). All series share the constituent set
+    selected from the full time base. Series that are entirely NaN, or that
+    have fewer valid samples than model parameters, are returned as NaN. Rows
+    where ``t`` itself is NaN are dropped for all series.
     """
     from ._backend import asnumpy, get_xp
     from ._harmonics_xp import gpu_supported, ut_E_xp
@@ -318,10 +322,10 @@ def solve_many(
     else:
         X = U.astype(float)
 
-    # Shared good-row mask across t and all series.
-    good = np.isfinite(t) & np.isfinite(X).all(axis=1)
-    t = t[good]
-    X = X[good]
+    # Drop rows where the (shared) time is invalid.
+    tfin = np.isfinite(t)
+    t = t[tfin]
+    X = X[tfin]
     nt, S = X.shape
 
     lor = np.ptp(t)
@@ -337,37 +341,76 @@ def solve_many(
 
     cnstit, coef = ut_cnstitsel(tref, Rayleigh_min / (24 * lor), constit, None)
     nNR = coef.nNR
+    nm = 2 * nNR + 1 + (1 if trend else 0)
 
     use_gpu = bool(gpu) and gpu_supported(ngflgs)
     xp = get_xp(use_gpu)
-    if verbose:
-        where = "gpu" if use_gpu else "cpu"
-        print(f"solve_many: {S} series, {nNR} constituents, {nt} times [{where}] ...")
-
     gpu_single = use_gpu and gpu_precision == "single"
+
+    # Build the full model matrix once; gap groups subselect rows from it
+    # rather than rebuilding the (expensive) basis per group.
     if use_gpu:
         E = ut_E_xp(
-            xp, xp.asarray(t), tref, cnstit.NR.frq, cnstit.NR.lind, lat, ngflgs,
-            precision="single" if gpu_single else "double",
+            xp, xp.asarray(t), tref, cnstit.NR.frq, cnstit.NR.lind, lat,
+            ngflgs, precision="single" if gpu_single else "double",
         )
     else:
         E = ut_E(t, tref, cnstit.NR.frq, cnstit.NR.lind, lat, ngflgs, [])
-
-    # Mean (& trend) columns match B's real dtype so a complex64 basis (single
-    # precision) stays complex64 and the batched solve runs in float32.
-    B = xp.hstack((E, E.conj(), xp.ones((nt, 1), dtype=E.real.dtype)))
+    B_full = xp.hstack((E, E.conj(), xp.ones((nt, 1), dtype=E.real.dtype)))
     if trend:
-        trend_col = xp.asarray((t - tref) / lor)[:, np.newaxis].astype(E.real.dtype)
-        B = xp.hstack((B, trend_col))
+        tc = xp.asarray((t - tref) / lor)[:, np.newaxis].astype(E.real.dtype)
+        B_full = xp.hstack((B_full, tc))
 
-    Xd = xp.asarray(X, dtype=B.dtype)
-    try:
-        M = xp.linalg.lstsq(B, Xd, rcond=None)[0]   # (nm, S)
-    except TypeError:
-        M = xp.linalg.lstsq(B, Xd)[0]
-    M = asnumpy(M)
-    if M.dtype == np.complex64:
-        M = M.astype(np.complex128)
+    def _solve_group(rows, cols):
+        Bg = B_full if rows.all() else B_full[xp.asarray(np.flatnonzero(rows))]
+        Xg = xp.asarray(X[np.ix_(rows, cols)], dtype=B_full.dtype)
+        try:
+            Mg = xp.linalg.lstsq(Bg, Xg, rcond=None)[0]
+        except TypeError:
+            Mg = xp.linalg.lstsq(Bg, Xg)[0]
+        Mg = asnumpy(Mg)
+        return Mg.astype(np.complex128) if Mg.dtype == np.complex64 else Mg
+
+    # Solve, batching stations that share the same valid-sample mask so the
+    # model matrix is built and factored once per distinct gap pattern. The
+    # common no-gap case is a single group; columns that are all-NaN or
+    # under-determined are left as NaN.
+    M = np.full((nm, S), np.nan, dtype=np.complex128)
+    present = np.isfinite(X)
+    full = present.all(axis=0)
+    ngroups = 0
+    cols_full = np.flatnonzero(full)
+    if cols_full.size:
+        allrows = np.ones(nt, dtype=bool)
+        M[:, cols_full] = _solve_group(allrows, cols_full)
+        ngroups += 1
+
+    gappy = np.flatnonzero(~full)
+    n_dropped = 0
+    if gappy.size:
+        keys = np.packbits(present[:, gappy], axis=0).T
+        groups = {}
+        for j, col in enumerate(gappy):
+            if not present[:, col].any():
+                n_dropped += 1
+                continue
+            groups.setdefault(keys[j].tobytes(), []).append(col)
+        for cols in groups.values():
+            rows = present[:, cols[0]]
+            if int(rows.sum()) <= nm:
+                n_dropped += len(cols)
+                continue
+            M[:, np.asarray(cols)] = _solve_group(rows, np.asarray(cols))
+            ngroups += 1
+
+    if verbose:
+        where = "gpu" if use_gpu else "cpu"
+        extra = f", {ngroups} gap groups" if gappy.size else ""
+        drop = f", {n_dropped} series too gappy (NaN)" if n_dropped else ""
+        print(
+            f"solve_many: {S} series, {nNR} constituents, {nt} times "
+            f"[{where}]{extra}{drop} ...",
+        )
 
     ap = M[:nNR]
     am = M[nNR : 2 * nNR]

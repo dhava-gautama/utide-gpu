@@ -101,6 +101,29 @@ def test_gpu_fallback_unsupported_option():
     assert np.allclose(c0["A"], c1["A"], rtol=1e-10, atol=1e-12)
 
 
+def test_solve_many_gappy():
+    # Per-series gaps: each series solved on its own valid samples, matching a
+    # per-series solve; all-NaN series come back NaN.
+    rng = np.random.default_rng(5)
+    t, u, _ = _series()
+    S = 4
+    X = np.column_stack([(0.5 + 0.3 * i) * u for i in range(S)])
+    X = X + 0.05 * rng.standard_normal(X.shape)
+    for s in range(S):
+        X[rng.choice(len(t), len(t) // 5, replace=False), s] = np.nan
+    om = solve_many(t, X, lat=45, constit=CONSTIT, gpu=True, epoch=EPOCH, verbose=False)
+    for s in range(S):
+        c = solve(t, X[:, s], lat=45, constit=CONSTIT, method="ols",
+                  conf_int="none", epoch=EPOCH, verbose=False)
+        order = [list(om.name).index(n) for n in c["name"]]
+        big = c["A"] > 0.05
+        assert np.allclose(c["A"][big], om.A[order, s][big], rtol=1e-4, atol=1e-6)
+    Xn = X.copy()
+    Xn[:, 0] = np.nan
+    om2 = solve_many(t, Xn, lat=45, constit=CONSTIT, gpu=True, epoch=EPOCH, verbose=False)
+    assert np.all(np.isnan(om2.A[:, 0]))
+
+
 def test_solve_many_matches_solve():
     t, u, _ = _series()
     X = np.column_stack([u, 0.7 * u, 1.3 * u])
