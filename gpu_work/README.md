@@ -45,13 +45,18 @@ ssh dhava@100.118.127.87 'cd ~/utide-gpu && source venv/bin/activate && \
 ## Done (hardening, 2026-06-08)
 - FP32 opt-in: `gpu_precision='single'` runs the mixed-precision basis + FP32 solve on
   `solve`/`solve_many`. Big batch win (up to ~10×); see measured numbers above.
+- GPU robust IRLS: `robustfit` is now backend-agnostic (dispatches on the input array
+  module), so `solve(method='robust', gpu=True)` runs the whole reweighting loop on the
+  device. Correct (matches CPU to 6.6e-13 double / 2.5e-7 single). Speed: break-even at
+  1yr, ~2.8× at 10yr, ~3.9× at 30yr (single) -- it pays off for long records only.
+  (Also fixed `andrews`/`huber`/`logistic` weight functions, which used Python `max()` on
+  an array and were latently broken; and a `x.size`->`X.size` typo in the 1-D reshape.)
 - Fixed `robustfit` crash on rank-deficient design matrices. (Root cause was *not* rcond=1
   as first thought — it's that `np.linalg.lstsq` omits the residual sum when rank < ncols,
   which happens with collinear/unresolvable constituents; `rsumsq[0]` then raised IndexError.
   Now the residual sum is computed directly in that case. `tests/test_robustfit.py`.)
 
 ## TODO before any publish (hardening)
-- GPU robust method (IRLS currently runs on host).
 - Gappy/masked batch input in `solve_many` (currently drops shared-NaN rows).
 - Larger-than-VRAM chunking for huge nt or S.
 - Confidence intervals + inference on the GPU path (currently host).
