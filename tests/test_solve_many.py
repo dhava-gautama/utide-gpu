@@ -78,6 +78,20 @@ def test_reconstruct_many_matches_reconstruct():
     assert np.allclose(H[:, 0], tide.h, rtol=1e-6, atol=1e-8)
 
 
+def test_solve_many_per_station_lat():
+    # An array of latitudes groups series into bands; each must match a
+    # per-series solve at its own latitude.
+    t, u = _series()
+    lats = np.array([20.0, 40.0, 60.0])
+    X = np.column_stack([u, 0.9 * u, 1.1 * u])
+    om = solve_many(t, X, lat=lats, constit=CONSTIT, gpu=False, epoch=EPOCH, verbose=False)
+    for s in range(3):
+        c = solve(t, X[:, s], lat=float(lats[s]), constit=CONSTIT, method="ols",
+                  conf_int="none", epoch=EPOCH, verbose=False)
+        order = [list(om.name).index(n) for n in c["name"]]
+        assert np.allclose(c["A"], om.A[order, s], rtol=1e-8, atol=1e-10)
+
+
 def test_solve_many_2d():
     t, u = _series()
     v = 0.5 * np.roll(u, 13)

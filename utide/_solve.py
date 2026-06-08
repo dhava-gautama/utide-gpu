@@ -258,6 +258,7 @@ def solve_many(
     gpu_precision="double",
     chunk_size=None,
     solver="lstsq",
+    lat_bin=2.0,
 ):
     """
     Vectorized OLS tidal fit for many series sharing one time base.
@@ -279,8 +280,11 @@ def solve_many(
         One or more scalar series (columns are series).
     v : array_like, optional
         Orthogonal component(s), same shape as ``u``, for a 2-D (u, v) fit.
-    lat : float
-        Latitude in degrees (required).
+    lat : float or array_like
+        Latitude in degrees (required). A scalar applies one nodal correction
+        to the whole batch; an array (one value per series) groups the series
+        into latitude bands (see ``lat_bin``) so geographically spread series
+        each get an appropriate nodal correction.
     gpu : bool, optional
         Use the CuPy backend if available (default True). Falls back to NumPy
         if CuPy / a CUDA device is unavailable.
@@ -304,6 +308,10 @@ def solve_many(
         consumer GPUs with throttled double precision (the per-chunk matmuls
         dominate), so it is opt-in rather than the default. Single precision
         always uses ``lstsq``.
+    lat_bin : float, optional
+        Latitude-band width in degrees used when ``lat`` is an array; series
+        within a band share one basis. Default 2.0 (the nodal correction varies
+        little over a couple of degrees).
 
     Returns
     -------
@@ -364,36 +372,44 @@ def solve_many(
     xp = get_xp(use_gpu)
     gpu_single = use_gpu and gpu_precision == "single"
 
-    # Build the full model matrix once; gap groups subselect rows from it
-    # rather than rebuilding the (expensive) basis per group.
-    if use_gpu:
-        E = ut_E_xp(
-            xp, xp.asarray(t), tref, cnstit.NR.frq, cnstit.NR.lind, lat,
-            ngflgs, precision="single" if gpu_single else "double",
-        )
+    # Latitude: a scalar (one nodal correction for the whole batch) or one value
+    # per series. With per-series latitudes the stations are grouped into bands
+    # of width ``lat_bin`` degrees (the nodal correction varies slowly and
+    # weakly with latitude) and a basis is built once per band.
+    if np.ndim(lat) == 0:
+        lat_arr = np.full(S, float(lat))
     else:
-        E = ut_E(t, tref, cnstit.NR.frq, cnstit.NR.lind, lat, ngflgs, [])
-    B_full = xp.hstack((E, E.conj(), xp.ones((nt, 1), dtype=E.real.dtype)))
-    if trend:
-        tc = xp.asarray((t - tref) / lor)[:, np.newaxis].astype(E.real.dtype)
-        B_full = xp.hstack((B_full, tc))
+        lat_arr = np.asarray(lat, dtype=float)
+        if lat_arr.shape != (S,):
+            raise ValueError("lat must be a scalar or one value per series")
 
-    def _auto_chunk(nrows):
+    def _build_basis(blat):
+        if use_gpu:
+            E = ut_E_xp(xp, xp.asarray(t), tref, cnstit.NR.frq, cnstit.NR.lind,
+                        blat, ngflgs, precision="single" if gpu_single else "double")
+        else:
+            E = ut_E(t, tref, cnstit.NR.frq, cnstit.NR.lind, blat, ngflgs, [])
+        B = xp.hstack((E, E.conj(), xp.ones((nt, 1), dtype=E.real.dtype)))
+        if trend:
+            tc = xp.asarray((t - tref) / lor)[:, np.newaxis].astype(E.real.dtype)
+            B = xp.hstack((B, tc))
+        return B
+
+    def _auto_chunk(B, nrows):
         # Columns per solve, bounded so X-on-device + lstsq workspace fit VRAM.
         if not use_gpu:
             return 1 << 30  # host RAM: no chunking needed
         free, _total = xp.cuda.runtime.memGetInfo()
-        per_col = nrows * B_full.dtype.itemsize * 4  # X + workspace headroom
+        per_col = nrows * B.dtype.itemsize * 4  # X + workspace headroom
         budget = max(int(free * 0.25), 64 << 20)
         return max(1, budget // per_col)
 
-    def _solve_group(rows, cols):
-        Bg = B_full if rows.all() else B_full[xp.asarray(np.flatnonzero(rows))]
-        cc = chunk_size or _auto_chunk(Bg.shape[0])
+    def _solve_group(B, rows, cols):
+        Bg = B if rows.all() else B[xp.asarray(np.flatnonzero(rows))]
+        cc = chunk_size or _auto_chunk(B, Bg.shape[0])
         # Normal-equations path: build and gate the Gram matrix ONCE per group
-        # (it is shared across all column chunks); the expensive B^H B is not
-        # recomputed per chunk. Cholesky gates it -- if the design is rank-
-        # deficient / badly conditioned it raises and we fall back to lstsq.
+        # (shared across column chunks). Cholesky gates it -- on rank deficiency
+        # / bad conditioning it raises and we fall back to lstsq.
         use_normal = solver != "lstsq" and not gpu_single
         G = BgH = None
         if use_normal:
@@ -406,7 +422,7 @@ def solve_many(
                 BgH = Bg.conj().T
         parts = []
         for i in range(0, len(cols), cc):
-            Xg = xp.asarray(X[np.ix_(rows, cols[i : i + cc])], dtype=B_full.dtype)
+            Xg = xp.asarray(X[np.ix_(rows, cols[i : i + cc])], dtype=B.dtype)
             if use_normal:
                 Mg = xp.linalg.solve(G, BgH @ Xg)
             else:
@@ -418,45 +434,58 @@ def solve_many(
         Mg = parts[0] if len(parts) == 1 else np.concatenate(parts, axis=1)
         return Mg.astype(np.complex128) if Mg.dtype == np.complex64 else Mg
 
-    # Solve, batching stations that share the same valid-sample mask so the
-    # model matrix is built and factored once per distinct gap pattern. The
-    # common no-gap case is a single group; columns that are all-NaN or
-    # under-determined are left as NaN.
+    def _solve_block(B, block_cols):
+        # Within one basis (latitude band), batch stations that share a
+        # valid-sample mask so the model matrix is factored once per gap pattern.
+        ng = dropped = 0
+        pres = present[:, block_cols].all(axis=0)
+        cf = block_cols[pres]
+        if cf.size:
+            M[:, cf] = _solve_group(B, np.ones(nt, dtype=bool), cf)
+            ng += 1
+        gappy = block_cols[~pres]
+        if gappy.size:
+            keys = np.packbits(present[:, gappy], axis=0).T
+            groups = {}
+            for j, col in enumerate(gappy):
+                if not present[:, col].any():
+                    dropped += 1
+                    continue
+                groups.setdefault(keys[j].tobytes(), []).append(col)
+            for gcols in groups.values():
+                rows = present[:, gcols[0]]
+                if int(rows.sum()) <= nm:
+                    dropped += len(gcols)
+                    continue
+                M[:, np.asarray(gcols)] = _solve_group(B, rows, np.asarray(gcols))
+                ng += 1
+        return ng, dropped
+
     M = np.full((nm, S), np.nan, dtype=np.complex128)
     present = np.isfinite(X)
-    full = present.all(axis=0)
-    ngroups = 0
-    cols_full = np.flatnonzero(full)
-    if cols_full.size:
-        allrows = np.ones(nt, dtype=bool)
-        M[:, cols_full] = _solve_group(allrows, cols_full)
-        ngroups += 1
+    if np.ndim(lat) == 0:
+        bands = {0: np.arange(S)}
+    else:
+        key = np.round(lat_arr / lat_bin).astype(int)
+        bands = {}
+        for s in range(S):
+            bands.setdefault(int(key[s]), []).append(s)
+        bands = {k: np.asarray(v) for k, v in bands.items()}
 
-    gappy = np.flatnonzero(~full)
-    n_dropped = 0
-    if gappy.size:
-        keys = np.packbits(present[:, gappy], axis=0).T
-        groups = {}
-        for j, col in enumerate(gappy):
-            if not present[:, col].any():
-                n_dropped += 1
-                continue
-            groups.setdefault(keys[j].tobytes(), []).append(col)
-        for cols in groups.values():
-            rows = present[:, cols[0]]
-            if int(rows.sum()) <= nm:
-                n_dropped += len(cols)
-                continue
-            M[:, np.asarray(cols)] = _solve_group(rows, np.asarray(cols))
-            ngroups += 1
+    ngroups = n_dropped = 0
+    for bcols in bands.values():
+        B = _build_basis(float(np.mean(lat_arr[bcols])))
+        ng, nd = _solve_block(B, np.asarray(bcols))
+        ngroups += ng
+        n_dropped += nd
 
     if verbose:
         where = "gpu" if use_gpu else "cpu"
-        extra = f", {ngroups} gap groups" if gappy.size else ""
+        bandmsg = f", {len(bands)} lat bands" if len(bands) > 1 else ""
         drop = f", {n_dropped} series too gappy (NaN)" if n_dropped else ""
         print(
             f"solve_many: {S} series, {nNR} constituents, {nt} times "
-            f"[{where}]{extra}{drop} ...",
+            f"[{where}]{bandmsg}{drop} ...",
         )
 
     ap = M[:nNR]
@@ -472,7 +501,7 @@ def solve_many(
         aux=Bunch(
             lind=coef.aux.lind,
             reftime=tref,
-            lat=lat,
+            lat=float(np.median(lat_arr)),
             ngflgs=list(ngflgs),
             twodim=twodim,
             trend=trend,
