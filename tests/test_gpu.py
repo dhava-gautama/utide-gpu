@@ -6,7 +6,7 @@ CUDA device are not available, so the suite still passes on CPU-only machines.
 import numpy as np
 import pytest
 
-from utide import solve, solve_many
+from utide import reconstruct, reconstruct_many, solve, solve_many
 
 # Skip the whole module unless CuPy + a device are present.
 cp = pytest.importorskip("cupy")
@@ -99,6 +99,25 @@ def test_gpu_fallback_unsupported_option():
     c0 = solve(t, u, **kw)
     c1 = solve(t, u, gpu=True, **kw)
     assert np.allclose(c0["A"], c1["A"], rtol=1e-10, atol=1e-12)
+
+
+def test_gpu_reconstruct_matches_cpu():
+    t, u, _ = _series()
+    coef = solve(t, u, lat=45, constit=CONSTIT, method="ols", conf_int="linear",
+                 epoch=EPOCH, verbose=False)
+    a = reconstruct(t, coef, epoch=EPOCH, verbose=False)
+    b = reconstruct(t, coef, epoch=EPOCH, gpu=True, verbose=False)
+    assert np.allclose(a.h, b.h, rtol=1e-5, atol=1e-6, equal_nan=True)
+
+
+def test_gpu_reconstruct_many():
+    t, u, _ = _series()
+    X = np.column_stack([u, 0.7 * u, 1.3 * u])
+    om = solve_many(t, X, lat=45, constit=CONSTIT, gpu=True, epoch=EPOCH, verbose=False)
+    Hc = reconstruct_many(t, om, epoch=EPOCH, gpu=False)
+    Hg = reconstruct_many(t, om, epoch=EPOCH, gpu=True)
+    assert Hg.shape == (len(t), 3)
+    assert np.allclose(Hc, Hg, rtol=1e-4, atol=1e-5)
 
 
 def test_solve_many_gappy():

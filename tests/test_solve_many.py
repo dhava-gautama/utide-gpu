@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from utide import solve, solve_many
+from utide import reconstruct, reconstruct_many, solve, solve_many
 
 EPOCH = "2000-01-01"
 CONSTIT = ["M2", "S2", "N2", "K1", "O1", "P1", "Q1", "M4"]
@@ -63,6 +63,19 @@ def test_solve_many_cpu_gappy():
     Xn[:, 0] = np.nan
     om2 = solve_many(t, Xn, lat=45, constit=CONSTIT, gpu=False, epoch=EPOCH, verbose=False)
     assert np.all(np.isnan(om2.A[:, 0]))
+
+
+def test_reconstruct_many_matches_reconstruct():
+    t, u = _series()
+    X = np.column_stack([u, 0.7 * u, 1.3 * u])
+    om = solve_many(t, X, lat=45, constit=CONSTIT, gpu=False, epoch=EPOCH, verbose=False)
+    H = reconstruct_many(t, om, epoch=EPOCH, gpu=False)
+    assert H.shape == (len(t), 3)
+    # series 0 must match a per-series solve + reconstruct
+    c = solve(t, u, lat=45, constit=CONSTIT, method="ols", conf_int="none",
+              epoch=EPOCH, verbose=False)
+    tide = reconstruct(t, c, epoch=EPOCH, min_SNR=0, verbose=False)
+    assert np.allclose(H[:, 0], tide.h, rtol=1e-6, atol=1e-8)
 
 
 def test_solve_many_2d():

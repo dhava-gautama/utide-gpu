@@ -13,6 +13,7 @@ def reconstruct(
     constit=None,
     min_SNR=2,
     min_PE=0,
+    gpu=False,
 ):
     """
     Reconstruct a tidal signal.
@@ -43,6 +44,11 @@ def reconstruct(
     min_PE : float, optional, default 0
         Include only the constituents with percent energy PE >= min_PE,
         where PE is based on the amplitudes in ``coef``.
+    gpu : {False, True}, optional
+        If True, build the harmonic basis and apply the coefficients on the
+        GPU via CuPy (with automatic CPU fallback for unsupported option
+        combinations). Default is False. See also :func:`utide.reconstruct_many`
+        for predicting a whole `solve_many` result in one batched call.
 
     Returns
     -------
@@ -81,6 +87,7 @@ def reconstruct(
         constit=constit,
         min_SNR=min_SNR,
         min_PE=min_PE,
+        gpu=gpu,
     )
 
     if v is not None:
@@ -90,7 +97,7 @@ def reconstruct(
     return out
 
 
-def _reconstruct(t, goodmask, coef, verbose, constit, min_SNR, min_PE):
+def _reconstruct(t, goodmask, coef, verbose, constit, min_SNR, min_PE, gpu=False):
     twodim = coef["aux"]["opt"]["twodim"]
 
     # Determine constituents to include.
@@ -135,17 +142,33 @@ def _reconstruct(t, goodmask, coef, verbose, constit, min_SNR, min_PE):
     if verbose:
         print("prep/calcs ... ", end="")
 
-    E = ut_E(
-        t,
-        coef["aux"]["reftime"],
-        coef["aux"]["frq"][ind],
-        coef["aux"]["lind"][ind],
-        coef["aux"]["lat"],
-        ngflgs,
-        coef["aux"]["opt"]["prefilt"],
-    )
+    # GPU path: build the basis and apply the coefficients on the device. Falls
+    # back to the CPU for option combinations the GPU basis does not support.
+    use_gpu = False
+    if gpu:
+        from ._backend import asnumpy, get_xp
+        from ._harmonics_xp import gpu_supported, ut_E_xp
+        use_gpu = gpu_supported(ngflgs)
 
-    fit = np.dot(E, ap) + np.dot(np.conj(E), am)
+    if use_gpu:
+        xp = get_xp(True)
+        Ed = ut_E_xp(
+            xp, xp.asarray(t), coef["aux"]["reftime"],
+            coef["aux"]["frq"][ind], coef["aux"]["lind"][ind],
+            coef["aux"]["lat"], ngflgs,
+        )
+        fit = asnumpy(Ed @ xp.asarray(ap) + Ed.conj() @ xp.asarray(am))
+    else:
+        E = ut_E(
+            t,
+            coef["aux"]["reftime"],
+            coef["aux"]["frq"][ind],
+            coef["aux"]["lind"][ind],
+            coef["aux"]["lat"],
+            ngflgs,
+            coef["aux"]["opt"]["prefilt"],
+        )
+        fit = np.dot(E, ap) + np.dot(np.conj(E), am)
 
     # Mean (& trend).
     u = np.empty(goodmask.shape, dtype=float)
@@ -170,3 +193,61 @@ def _reconstruct(t, goodmask, coef, verbose, constit, min_SNR, min_PE):
         print("done.")
 
     return u, v
+
+
+def reconstruct_many(t, coefs, epoch=None, gpu=True):
+    """
+    Predict the tide for every series in a :func:`utide.solve_many` result.
+
+    The harmonic basis is built once and applied to all series in one batched
+    (optionally GPU) matmul -- the prediction counterpart of ``solve_many``.
+
+    Parameters
+    ----------
+    t : array_like
+        Times to predict at (days or datetime-like; same convention as the
+        ``solve_many`` call that produced ``coefs``).
+    coefs : `Bunch`
+        The output of :func:`utide.solve_many` (scalar / 1-D case).
+    epoch : optional
+        As in :func:`utide.solve`; needed when ``t`` is a float datenum.
+    gpu : bool, optional
+        Use the CuPy backend if available (default True).
+
+    Returns
+    -------
+    h : ndarray, shape (n_times, n_series)
+        Predicted water level for each series.
+
+    Notes
+    -----
+    Velocity / 2-D ``solve_many`` output is not yet supported here; reconstruct
+    those series individually with :func:`utide.reconstruct`.
+    """
+    if "A" not in coefs:
+        raise NotImplementedError(
+            "reconstruct_many supports scalar (1-D) solve_many output; use "
+            "reconstruct() per series for velocity (u, v) results.",
+        )
+    from ._backend import asnumpy, get_xp
+    from ._harmonics_xp import gpu_supported, ut_E_xp
+
+    aux = coefs["aux"]
+    t = _normalize_time(np.atleast_1d(t), epoch).astype(float)
+    rpd = np.pi / 180
+    ap = 0.5 * np.asarray(coefs["A"]) * np.exp(-1j * np.asarray(coefs["g"]) * rpd)
+
+    use_gpu = bool(gpu) and gpu_supported(aux["ngflgs"])
+    xp = get_xp(use_gpu)
+    if use_gpu:
+        E = ut_E_xp(xp, xp.asarray(t), aux["reftime"], coefs["frq"],
+                    aux["lind"], aux["lat"], aux["ngflgs"])
+    else:
+        E = ut_E(t, aux["reftime"], coefs["frq"], aux["lind"], aux["lat"],
+                 aux["ngflgs"], [])
+    apd = xp.asarray(ap)
+    h = asnumpy(E @ apd + E.conj() @ apd.conj()).real      # (n_times, n_series)
+    h = h + np.asarray(coefs["mean"])[None, :]
+    if aux.get("trend") and "slope" in coefs:
+        h = h + np.asarray(coefs["slope"])[None, :] * (t - aux["reftime"])[:, None]
+    return h

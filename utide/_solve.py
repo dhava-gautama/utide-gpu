@@ -469,6 +469,15 @@ def solve_many(
         frq=coef.aux.frq,
         lat=lat,
         nseries=S,
+        aux=Bunch(
+            lind=coef.aux.lind,
+            reftime=tref,
+            lat=lat,
+            ngflgs=list(ngflgs),
+            twodim=twodim,
+            trend=trend,
+            lor=lor,
+        ),
     )
     if not twodim:
         A, _, _, g = ut_cs2cep(Xu, Yu)

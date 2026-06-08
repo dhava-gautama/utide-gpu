@@ -109,6 +109,9 @@ Highlights:
 - `solve_many` fits many series with a shared time base in one solve\--far
   faster than looping `solve`\--and handles per-series gaps and streams large
   batches within available GPU memory.
+- `reconstruct(..., gpu=True)` predicts the tide on the GPU, and
+  `reconstruct_many` predicts a whole `solve_many` result (a field of series)
+  in one batched call.
 - `gpu_precision="single"` runs the basis and solve in float32 for a large
   speedup where the GPU's double-precision throughput is limited, at reduced
   numerical precision (intended for screening, not final-precision work).
@@ -181,6 +184,9 @@ from utide import tidal_characteristics, tidal_characteristics_many
 c = tidal_characteristics(t, h)          # one series -> MHW, MLW, MTL, MTR, ED, FD
 maps = tidal_characteristics_many(t, X)  # a field (n_times, n_series) -> arrays
 ```
+
+`tidal_form_factor(coef)` returns the `(K1+O1)/(M2+S2)` form factor and the
+diurnal/semidiurnal classification from a `solve` or `solve_many` result.
 
 This pairs naturally with `solve_many`: constituent maps *and* datum maps over
 the same grid. The datum set follows DHI's

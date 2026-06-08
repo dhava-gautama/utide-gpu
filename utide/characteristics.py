@@ -28,7 +28,50 @@ from scipy.signal import find_peaks
 from ._time_conversion import _normalize_time
 from .utilities import Bunch
 
-__all__ = ["tidal_characteristics", "tidal_characteristics_many"]
+__all__ = ["tidal_characteristics", "tidal_characteristics_many", "tidal_form_factor"]
+
+_FORM_EDGES = [0.25, 1.5, 3.0]
+_FORM_LABELS = np.array(
+    ["semidiurnal", "mixed (mainly semidiurnal)", "mixed (mainly diurnal)", "diurnal"],
+)
+
+
+def tidal_form_factor(coef, classify=False):
+    """
+    Tidal form factor ``F = (K1 + O1) / (M2 + S2)`` from a harmonic solution.
+
+    The form factor classifies the tidal regime: ``F < 0.25`` semidiurnal,
+    ``0.25-1.5`` mixed (mainly semidiurnal), ``1.5-3`` mixed (mainly diurnal),
+    ``> 3`` diurnal.
+
+    Works on a single ``coef`` from :func:`utide.solve` (returns a float) or on
+    a :func:`utide.solve_many` result (returns one value per series).
+
+    Parameters
+    ----------
+    coef : `Bunch`
+        Output of ``solve`` or ``solve_many`` (must contain the K1, O1, M2, S2
+        amplitudes in ``coef['A']``).
+    classify : bool, optional
+        If True, also return the regime label(s).
+
+    Returns
+    -------
+    F : float or ndarray
+        The form factor.
+    regime : str or ndarray of str
+        Only if ``classify`` is True.
+    """
+    names = list(coef["name"])
+    A = np.asarray(coef["A"])
+
+    def amp(n):
+        return A[names.index(n)] if n in names else 0.0 * A[0]
+
+    F = (amp("K1") + amp("O1")) / (amp("M2") + amp("S2"))
+    if not classify:
+        return F
+    return F, _FORM_LABELS[np.digitize(F, _FORM_EDGES)]
 
 _KEYS = ("MHW", "MLW", "MTL", "MTR", "ED", "FD")
 
