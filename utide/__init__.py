@@ -1,15 +1,15 @@
 from ._reconstruct import reconstruct, reconstruct_many
 from ._solve import solve, solve_many
-from .characteristics import (
-    tidal_characteristics,
-    tidal_characteristics_many,
-    tidal_form_factor,
-)
 from ._ut_constants import (
     constit_index_dict,
     cycles_per_hour,
     hours_per_cycle,
     ut_constants,
+)
+from .characteristics import (
+    tidal_characteristics,
+    tidal_characteristics_many,
+    tidal_form_factor,
 )
 
 try:

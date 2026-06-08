@@ -6,7 +6,9 @@ target device once via Tables(xp). The goal is a faithful reproduction of
 utide.harmonics.ut_E so we can (a) validate numerical agreement and
 (b) benchmark CPU vs GPU on the dominant basis-construction cost.
 """
+
 import numpy as np
+
 from utide._ut_constants import ut_constants
 from utide.astronomy import _coefs as _coefs_np
 
@@ -25,6 +27,7 @@ _kshallow = np.nonzero(~_not_shallow)[0]
 
 class Tables:
     """Constant tables transferred to the chosen backend once."""
+
     def __init__(self, xp):
         self.xp = xp
         self.coefs = xp.asarray(_coefs_np)
@@ -78,13 +81,13 @@ def FUV_xp(xp, t, tref, lind, lat, tab):
 
     uu = tab.deldood @ astro[3:6, :] + tab.phcorr[:, None]
     uu = xp.fmod(uu, 1)
-    mat = rr[:, None] * xp.exp(1j * 2 * np.pi * uu)          # (nsat, nt) complex
+    mat = rr[:, None] * xp.exp(1j * 2 * np.pi * uu)  # (nsat, nt) complex
 
-    nfreq = const.isat.shape[0]                              # 146
+    nfreq = const.isat.shape[0]  # 146
     # segment-sum of satellite contributions per constituent, as a single
     # selection-matrix multiply (works for complex on numpy and cupy):
     #   F[ii] = 1 + sum_{s: iconst[s]==ii} mat[s]
-    F = 1.0 + tab.satsel @ mat                               # (nfreq, nt)
+    F = 1.0 + tab.satsel @ mat  # (nfreq, nt)
 
     U = xp.angle(F) / (2 * np.pi)
     F = xp.abs(F)
@@ -103,7 +106,7 @@ def FUV_xp(xp, t, tref, lind, lat, tab):
 
     # ---- gwch (astronomical argument V) ----
     astro = ut_astron_xp(xp, t, tab)
-    V = tab.doodson @ astro + tab.semi[:, None]             # (146, nt)
+    V = tab.doodson @ astro + tab.semi[:, None]  # (146, nt)
     V = xp.fmod(V, 1)
     for i0, nshal, k in zip(tab.ishallow, tab.nshallow, tab.kshallow):
         ik = slice(i0, i0 + nshal)

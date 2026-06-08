@@ -1,5 +1,8 @@
 """Fetch NOAA official harmonic constants for the example stations (public domain)."""
-import json, urllib.request
+
+import json
+import urllib.request
+
 import numpy as np
 
 d = np.load("examples/data/noaa_hourly_2023.npz", allow_pickle=True)
@@ -10,8 +13,11 @@ for sid in ids:
     try:
         with urllib.request.urlopen(url, timeout=30) as r:
             j = json.load(r)
-        hc = {h["name"]: [round(h["amplitude"], 4), round(h["phase_GMT"], 2)]
-              for h in j.get("HarmonicConstituents", []) if h["amplitude"] > 0}
+        hc = {
+            h["name"]: [round(h["amplitude"], 4), round(h["phase_GMT"], 2)]
+            for h in j.get("HarmonicConstituents", [])
+            if h["amplitude"] > 0
+        }
         if hc:
             out[sid] = hc
             print(f"  {sid}: {len(hc)} constituents")

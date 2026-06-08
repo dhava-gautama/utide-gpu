@@ -385,8 +385,16 @@ def solve_many(
 
     def _build_basis(blat):
         if use_gpu:
-            E = ut_E_xp(xp, xp.asarray(t), tref, cnstit.NR.frq, cnstit.NR.lind,
-                        blat, ngflgs, precision="single" if gpu_single else "double")
+            E = ut_E_xp(
+                xp,
+                xp.asarray(t),
+                tref,
+                cnstit.NR.frq,
+                cnstit.NR.lind,
+                blat,
+                ngflgs,
+                precision="single" if gpu_single else "double",
+            )
         else:
             E = ut_E(t, tref, cnstit.NR.frq, cnstit.NR.lind, blat, ngflgs, [])
         B = xp.hstack((E, E.conj(), xp.ones((nt, 1), dtype=E.real.dtype)))
@@ -438,12 +446,12 @@ def solve_many(
         # Within one basis (latitude band), batch stations that share a
         # valid-sample mask so the model matrix is factored once per gap pattern.
         ng = dropped = 0
-        pres = present[:, block_cols].all(axis=0)
-        cf = block_cols[pres]
+        colok = present[:, block_cols].all(axis=0)
+        cf = block_cols[colok]
         if cf.size:
             M[:, cf] = _solve_group(B, np.ones(nt, dtype=bool), cf)
             ng += 1
-        gappy = block_cols[~pres]
+        gappy = block_cols[~colok]
         if gappy.size:
             keys = np.packbits(present[:, gappy], axis=0).T
             groups = {}
@@ -475,9 +483,9 @@ def solve_many(
     ngroups = n_dropped = 0
     for bcols in bands.values():
         B = _build_basis(float(np.mean(lat_arr[bcols])))
-        ng, nd = _solve_block(B, np.asarray(bcols))
+        ng, ndrop = _solve_block(B, np.asarray(bcols))
         ngroups += ng
-        n_dropped += nd
+        n_dropped += ndrop
 
     if verbose:
         where = "gpu" if use_gpu else "cpu"
@@ -585,7 +593,13 @@ def _solv1(tin, uin, vin, lat, **opts):
     if use_gpu:
         t_dev = xp.asarray(t)
         E = ut_E_xp(
-            xp, t_dev, tref, cnstit.NR.frq, cnstit.NR.lind, lat, ngflgs,
+            xp,
+            t_dev,
+            tref,
+            cnstit.NR.frq,
+            cnstit.NR.lind,
+            lat,
+            ngflgs,
             precision="single" if gpu_single else "double",
         )
     else:

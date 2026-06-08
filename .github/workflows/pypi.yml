@@ -1,53 +1,36 @@
 name: Publish to PyPI
 
+# Builds the distributions and publishes them to PyPI when a GitHub Release is
+# published, using PyPI Trusted Publishing (OIDC) -- no API token/secret needed.
+# To enable: on PyPI, add a trusted publisher for the project "utide-gpu"
+# pointing to this repository and workflow (pypi.yml), then publish a Release.
 on:
-  pull_request:
-  push:
-    branches: [master, main]
   release:
-    types:
-      - published
-
-defaults:
-  run:
-    shell: bash
+    types: [ published ]
 
 jobs:
-  packages:
+  build-and-publish:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # required for trusted publishing
     steps:
-    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # tags, for setuptools_scm
 
-    - name: Set up Python
-      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
-      with:
-        python-version: "3.x"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
 
-    - name: Get tags
-      run: git fetch --depth=1 origin +refs/tags/*:refs/tags/*
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
 
-    - name: Install build tools
-      run: |
-        python -m pip install --upgrade pip build
+      - name: Check distributions
+        run: |
+          python -m pip install --upgrade twine
+          python -m twine check dist/*
 
-    - name: Build sdist and binary wheel
-      run: python -m build --sdist --wheel . --outdir dist
-
-    - name: CheckFiles
-      run: |
-        ls dist
-        python -m pip install --upgrade check-manifest
-        check-manifest --verbose
-
-    - name: Test wheels
-      run: |
-        cd dist && python -m pip install *.whl
-        python -m pip install --upgrade twine
-        python -m twine check *
-
-    - name: Publish a Python distribution to PyPI
-      if: success() && github.event_name == 'release'
-      uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b  # v1.14.0
-      with:
-        user: __token__
-        password: ${{ secrets.PYPI_PASSWORD }}
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

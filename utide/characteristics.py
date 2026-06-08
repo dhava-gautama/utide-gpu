@@ -73,6 +73,7 @@ def tidal_form_factor(coef, classify=False):
         return F
     return F, _FORM_LABELS[np.digitize(F, _FORM_EDGES)]
 
+
 _KEYS = ("MHW", "MLW", "MTL", "MTR", "ED", "FD")
 
 
@@ -189,8 +190,11 @@ def tidal_characteristics_many(t, X, min_period_hours=2.0, prominence=None, epoc
     out.n_low = np.zeros(nser, dtype=int)
     for s in range(nser):
         c = tidal_characteristics(
-            t, X[:, s], min_period_hours=min_period_hours,
-            prominence=prominence, epoch=epoch,
+            t,
+            X[:, s],
+            min_period_hours=min_period_hours,
+            prominence=prominence,
+            epoch=epoch,
         )
         if c is not None:
             for k in _KEYS:

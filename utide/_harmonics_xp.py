@@ -100,7 +100,7 @@ def _FUV_default(xp, t, lind, lat, tab, single=False):
     float32; V is always returned in float64.
     """
     # ---- nodal/satellite correction (F, U) ----
-    astro = ut_astron_xp(xp, t, tab)                      # always FP64
+    astro = ut_astron_xp(xp, t, tab)  # always FP64
     if abs(lat) < 5:
         lat = np.sign(lat) * 5
     slat = np.sin(np.deg2rad(lat))
@@ -110,13 +110,13 @@ def _FUV_default(xp, t, lind, lat, tab, single=False):
 
     uu = tab.deldood @ astro[3:6, :] + tab.phcorr[:, None]  # FP64 reduction
     uu = xp.fmod(uu, 1)
-    mat = rr[:, None] * xp.exp(1j * 2 * np.pi * uu)        # (nsat, nt) complex
+    mat = rr[:, None] * xp.exp(1j * 2 * np.pi * uu)  # (nsat, nt) complex
 
     # F[ii] = 1 + sum_{s: iconst[s]==ii} mat[s]   via selection-matrix matmul
     if single:
         F = 1.0 + tab.satsel32 @ mat.astype(xp.complex64)  # FP32 (the big win)
     else:
-        F = 1.0 + tab.satsel @ mat                         # (nfreq, nt) complex
+        F = 1.0 + tab.satsel @ mat  # (nfreq, nt) complex
     U = xp.angle(F) / (2 * np.pi)
     F = xp.abs(F)
 
@@ -132,7 +132,7 @@ def _FUV_default(xp, t, lind, lat, tab, single=False):
 
     # ---- Greenwich astronomical argument (V): always FP64 for phase accuracy ----
     astro = ut_astron_xp(xp, t, tab)
-    V = tab.doodson @ astro + tab.semi[:, None]            # (nfreq, nt)
+    V = tab.doodson @ astro + tab.semi[:, None]  # (nfreq, nt)
     V = xp.fmod(V, 1)
     for k, j, coef, _acoef in tab._shallow:
         V[k, :] = xp.sum(V[j, :] * coef, axis=0)

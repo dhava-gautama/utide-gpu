@@ -25,10 +25,26 @@ def _series(nt=2 * 365 * 24, seed=11):
 def test_solve_many_cpu_matches_solve():
     t, u = _series()
     X = np.column_stack([u, 0.7 * u, 1.3 * u])
-    om = solve_many(t, X, lat=45, constit=CONSTIT, gpu=False, epoch=EPOCH, verbose=False)
+    om = solve_many(
+        t,
+        X,
+        lat=45,
+        constit=CONSTIT,
+        gpu=False,
+        epoch=EPOCH,
+        verbose=False,
+    )
     for s in range(3):
-        c = solve(t, X[:, s], lat=45, constit=CONSTIT, method="ols",
-                  conf_int="none", epoch=EPOCH, verbose=False)
+        c = solve(
+            t,
+            X[:, s],
+            lat=45,
+            constit=CONSTIT,
+            method="ols",
+            conf_int="none",
+            epoch=EPOCH,
+            verbose=False,
+        )
         order = [list(om.name).index(n) for n in c["name"]]
         assert np.allclose(c["A"], om.A[order, s], rtol=1e-5, atol=1e-8)
 
@@ -39,7 +55,7 @@ def test_solve_many_solver_equivalence():
     t, u = _series()
     X = np.column_stack([(0.5 + 0.2 * i) * u for i in range(8)])
     X = X + 0.05 * rng.standard_normal(X.shape)
-    kw = dict(lat=45, constit=CONSTIT, gpu=False, epoch=EPOCH, verbose=False)
+    kw = {"lat": 45, "constit": CONSTIT, "gpu": False, "epoch": EPOCH, "verbose": False}
     a = solve_many(t, X, solver="normal", **kw)
     b = solve_many(t, X, solver="lstsq", **kw)
     assert np.allclose(a.A, b.A, rtol=1e-6, atol=1e-8)
@@ -53,27 +69,67 @@ def test_solve_many_cpu_gappy():
     X = X + 0.05 * rng.standard_normal(X.shape)
     for s in range(4):
         X[rng.choice(len(t), len(t) // 5, replace=False), s] = np.nan
-    om = solve_many(t, X, lat=45, constit=CONSTIT, gpu=False, epoch=EPOCH, verbose=False)
+    om = solve_many(
+        t,
+        X,
+        lat=45,
+        constit=CONSTIT,
+        gpu=False,
+        epoch=EPOCH,
+        verbose=False,
+    )
     for s in range(4):
-        c = solve(t, X[:, s], lat=45, constit=CONSTIT, method="ols",
-                  conf_int="none", epoch=EPOCH, verbose=False)
+        c = solve(
+            t,
+            X[:, s],
+            lat=45,
+            constit=CONSTIT,
+            method="ols",
+            conf_int="none",
+            epoch=EPOCH,
+            verbose=False,
+        )
         order = [list(om.name).index(n) for n in c["name"]]
         assert np.allclose(c["A"], om.A[order, s], rtol=1e-5, atol=1e-8)
     Xn = X.copy()
     Xn[:, 0] = np.nan
-    om2 = solve_many(t, Xn, lat=45, constit=CONSTIT, gpu=False, epoch=EPOCH, verbose=False)
+    om2 = solve_many(
+        t,
+        Xn,
+        lat=45,
+        constit=CONSTIT,
+        gpu=False,
+        epoch=EPOCH,
+        verbose=False,
+    )
     assert np.all(np.isnan(om2.A[:, 0]))
 
 
 def test_reconstruct_many_matches_reconstruct():
     t, u = _series()
     X = np.column_stack([u, 0.7 * u, 1.3 * u])
-    om = solve_many(t, X, lat=45, constit=CONSTIT, gpu=False, epoch=EPOCH, verbose=False)
+    om = solve_many(
+        t,
+        X,
+        lat=45,
+        constit=CONSTIT,
+        gpu=False,
+        epoch=EPOCH,
+        verbose=False,
+    )
     H = reconstruct_many(t, om, epoch=EPOCH, gpu=False)
     assert H.shape == (len(t), 3)
     # series 0 must match a per-series solve + reconstruct
-    c = solve(t, u, lat=45, constit=CONSTIT, method="ols", conf_int="none",
-              epoch=EPOCH, verbose=False)
+    c = solve(
+        t,
+        u,
+        lat=45,
+        constit=CONSTIT,
+        method="ols",
+        conf_int="none",
+        epoch=EPOCH,
+        verbose=False,
+    )
     tide = reconstruct(t, c, epoch=EPOCH, min_SNR=0, verbose=False)
     assert np.allclose(H[:, 0], tide.h, rtol=1e-6, atol=1e-8)
 
@@ -84,10 +140,26 @@ def test_solve_many_per_station_lat():
     t, u = _series()
     lats = np.array([20.0, 40.0, 60.0])
     X = np.column_stack([u, 0.9 * u, 1.1 * u])
-    om = solve_many(t, X, lat=lats, constit=CONSTIT, gpu=False, epoch=EPOCH, verbose=False)
+    om = solve_many(
+        t,
+        X,
+        lat=lats,
+        constit=CONSTIT,
+        gpu=False,
+        epoch=EPOCH,
+        verbose=False,
+    )
     for s in range(3):
-        c = solve(t, X[:, s], lat=float(lats[s]), constit=CONSTIT, method="ols",
-                  conf_int="none", epoch=EPOCH, verbose=False)
+        c = solve(
+            t,
+            X[:, s],
+            lat=float(lats[s]),
+            constit=CONSTIT,
+            method="ols",
+            conf_int="none",
+            epoch=EPOCH,
+            verbose=False,
+        )
         order = [list(om.name).index(n) for n in c["name"]]
         assert np.allclose(c["A"], om.A[order, s], rtol=1e-8, atol=1e-10)
 
@@ -97,8 +169,26 @@ def test_solve_many_2d():
     v = 0.5 * np.roll(u, 13)
     U = np.column_stack([u, 0.8 * u])
     V = np.column_stack([v, 0.8 * v])
-    om = solve_many(t, U, V, lat=45, constit=CONSTIT, gpu=False, epoch=EPOCH, verbose=False)
-    c = solve(t, u, v, lat=45, constit=CONSTIT, method="ols", conf_int="none",
-              epoch=EPOCH, verbose=False)
+    om = solve_many(
+        t,
+        U,
+        V,
+        lat=45,
+        constit=CONSTIT,
+        gpu=False,
+        epoch=EPOCH,
+        verbose=False,
+    )
+    c = solve(
+        t,
+        u,
+        v,
+        lat=45,
+        constit=CONSTIT,
+        method="ols",
+        conf_int="none",
+        epoch=EPOCH,
+        verbose=False,
+    )
     order = [list(om.name).index(n) for n in c["name"]]
     assert np.allclose(c["Lsmaj"], om.Lsmaj[order, 0], rtol=1e-5, atol=1e-8)

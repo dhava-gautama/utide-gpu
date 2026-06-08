@@ -40,7 +40,7 @@ def test_batched_matches_single():
     assert np.allclose(out.MTR, 2 * amps, atol=0.15)
     for s in range(3):
         c = tidal_characteristics(t, X[:, s])
-        assert out.MHW[s] == c.MHW       # identical to the single-series call
+        assert out.MHW[s] == c.MHW  # identical to the single-series call
 
 
 def test_flat_series_returns_none_and_nan():
@@ -55,18 +55,28 @@ def test_form_factor_classification():
     nt = 120 * 24
     t = np.arange(nt) / 24.0
     cph = {"M2": 1 / 12.42, "S2": 1 / 12.0, "K1": 1 / 23.93, "O1": 1 / 25.82}
-    kw = dict(lat=45, constit=["M2", "S2", "K1", "O1"], method="ols",
-              conf_int="none", epoch="2000-01-01", verbose=False)
+    kw = {
+        "lat": 45,
+        "constit": ["M2", "S2", "K1", "O1"],
+        "method": "ols",
+        "conf_int": "none",
+        "epoch": "2000-01-01",
+        "verbose": False,
+    }
     # diurnal-dominant -> F large
-    h = (1.0 * np.cos(2 * np.pi * cph["K1"] * 24 * t)
-         + 0.8 * np.cos(2 * np.pi * cph["O1"] * 24 * t)
-         + 0.1 * np.cos(2 * np.pi * cph["M2"] * 24 * t))
+    h = (
+        1.0 * np.cos(2 * np.pi * cph["K1"] * 24 * t)
+        + 0.8 * np.cos(2 * np.pi * cph["O1"] * 24 * t)
+        + 0.1 * np.cos(2 * np.pi * cph["M2"] * 24 * t)
+    )
     F, regime = tidal_form_factor(solve(t, h, **kw), classify=True)
     assert F > 3 and regime == "diurnal"
     # semidiurnal-dominant -> F small
-    h = (1.0 * np.cos(2 * np.pi * cph["M2"] * 24 * t)
-         + 0.3 * np.cos(2 * np.pi * cph["S2"] * 24 * t)
-         + 0.05 * np.cos(2 * np.pi * cph["K1"] * 24 * t))
+    h = (
+        1.0 * np.cos(2 * np.pi * cph["M2"] * 24 * t)
+        + 0.3 * np.cos(2 * np.pi * cph["S2"] * 24 * t)
+        + 0.05 * np.cos(2 * np.pi * cph["K1"] * 24 * t)
+    )
     assert tidal_form_factor(solve(t, h, **kw)) < 0.25
 
 

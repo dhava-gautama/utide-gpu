@@ -148,14 +148,19 @@ def _reconstruct(t, goodmask, coef, verbose, constit, min_SNR, min_PE, gpu=False
     if gpu:
         from ._backend import asnumpy, get_xp
         from ._harmonics_xp import gpu_supported, ut_E_xp
+
         use_gpu = gpu_supported(ngflgs)
 
     if use_gpu:
         xp = get_xp(True)
         Ed = ut_E_xp(
-            xp, xp.asarray(t), coef["aux"]["reftime"],
-            coef["aux"]["frq"][ind], coef["aux"]["lind"][ind],
-            coef["aux"]["lat"], ngflgs,
+            xp,
+            xp.asarray(t),
+            coef["aux"]["reftime"],
+            coef["aux"]["frq"][ind],
+            coef["aux"]["lind"][ind],
+            coef["aux"]["lat"],
+            ngflgs,
         )
         fit = asnumpy(Ed @ xp.asarray(ap) + Ed.conj() @ xp.asarray(am))
     else:
@@ -240,13 +245,27 @@ def reconstruct_many(t, coefs, epoch=None, gpu=True):
     use_gpu = bool(gpu) and gpu_supported(aux["ngflgs"])
     xp = get_xp(use_gpu)
     if use_gpu:
-        E = ut_E_xp(xp, xp.asarray(t), aux["reftime"], coefs["frq"],
-                    aux["lind"], aux["lat"], aux["ngflgs"])
+        E = ut_E_xp(
+            xp,
+            xp.asarray(t),
+            aux["reftime"],
+            coefs["frq"],
+            aux["lind"],
+            aux["lat"],
+            aux["ngflgs"],
+        )
     else:
-        E = ut_E(t, aux["reftime"], coefs["frq"], aux["lind"], aux["lat"],
-                 aux["ngflgs"], [])
+        E = ut_E(
+            t,
+            aux["reftime"],
+            coefs["frq"],
+            aux["lind"],
+            aux["lat"],
+            aux["ngflgs"],
+            [],
+        )
     apd = xp.asarray(ap)
-    h = asnumpy(E @ apd + E.conj() @ apd.conj()).real      # (n_times, n_series)
+    h = asnumpy(E @ apd + E.conj() @ apd.conj()).real  # (n_times, n_series)
     h = h + np.asarray(coefs["mean"])[None, :]
     if aux.get("trend") and "slope" in coefs:
         h = h + np.asarray(coefs["slope"])[None, :] * (t - aux["reftime"])[:, None]

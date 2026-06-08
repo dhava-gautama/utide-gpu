@@ -19,7 +19,7 @@ import utide
 coef = utide.solve(t, h, lat=45, method="ols", conf_int="linear", gpu=True)
 
 # Many series sharing one time base (the big win): X is (nt, S)
-out = utide.solve_many(t, X, lat=45, gpu=True)   # out.A, out.g are (nc, S)
+out = utide.solve_many(t, X, lat=45, gpu=True)  # out.A, out.g are (nc, S)
 ```
 
 ## Measured on RTX 4060 (see bench_gpu.py, validate_*.py)

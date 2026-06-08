@@ -7,8 +7,8 @@ requires = [
 ]
 
 [project]
-name = "utide"
-description = "Python distribution of the MatLab package UTide"
+name = "utide-gpu"
+description = "GPU-accelerated UTide: optional CuPy backend and batched solve_many for tidal analysis"
 license = { text = "MIT" }
 authors = [
   { name = "Wesley Bowman", email = "wesley.bowman23@gmail.com" },
@@ -48,6 +48,10 @@ tag_regex = "^(?P<prefix>v)?(?P<version>[^\\+]+)(?P<suffix>.*)?$"
 [tool.ruff]
 target-version = "py310"
 line-length = 110
+extend-exclude = [
+  "gpu_work",  # internal scratch: benchmarks and validation scripts
+  "notebooks",
+]
 
 lint.select = [
   "A",  # flake8-builtins
@@ -62,6 +66,9 @@ lint.per-file-ignores."docs/conf.py" = [
   "E401",
   "E402",
 ]
+
+[tool.codespell]
+skip = "*.ipynb,gpu_work/*,examples/data/*,*.json,*.dtf,*.npz,*.png"
 
 [tool.check-manifest]
 ignore = [

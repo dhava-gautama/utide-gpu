@@ -8,6 +8,7 @@ repos:
       exclude: github_deploy_key_wesleybowman_utide.enc
     - id: check-docstring-first
     - id: check-added-large-files
+      args: [--maxkb=1024]
     - id: requirements-txt-fixer
     - id: file-contents-sorter
       files: requirements-dev.txt

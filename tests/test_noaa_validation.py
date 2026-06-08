@@ -5,6 +5,7 @@ Solves one year of real hourly data at a few NOAA stations and checks that the
 major constituents match NOAA's accepted constants (amplitude and Greenwich
 phase). Uses the committed example data, so it runs offline.
 """
+
 import json
 import os
 
@@ -33,8 +34,15 @@ def test_matches_noaa_harmonic_constants():
     # clearly semidiurnal, large-tide stations where the majors are well determined
     for sid in ["8410140", "8443970", "9414290"]:  # Eastport, Boston, San Francisco
         s = ids.index(sid)
-        coef = solve(t, X[:, s], lat=float(lats[s]), method="ols",
-                     conf_int="none", epoch="2023-01-01", verbose=False)
+        coef = solve(
+            t,
+            X[:, s],
+            lat=float(lats[s]),
+            method="ols",
+            conf_int="none",
+            epoch="2023-01-01",
+            verbose=False,
+        )
         i_of = {n: i for i, n in enumerate(coef["name"])}
         hc = harcon[sid]
         for c in ["M2", "S2", "N2", "K1", "O1"]:

@@ -1,40 +1,33 @@
 name: Tests
 
 on:
-  pull_request:
   push:
     branches: [ master, main ]
+  pull_request:
 
 jobs:
-  run:
-    runs-on: ${{ matrix.os }}
+  test:
+    runs-on: ubuntu-latest
     strategy:
-      matrix:
-        python-version: [ "3.10", "3.11", "3.12", "3.13", "3.14" ]
-        os: [ windows-latest, ubuntu-latest, macos-latest ]
       fail-fast: false
-    defaults:
-      run:
-        shell: bash -l {0}
+      matrix:
+        python-version: [ "3.11", "3.12", "3.13" ]
 
     steps:
-    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # tags, so setuptools_scm can resolve the version
 
-    - name: Setup Micromamba Python ${{ matrix.python-version }}
-      uses: mamba-org/setup-micromamba@d7c9bd84e824b79d2af72a2d4196c7f4300d3476 # v3.0.0
-      with:
-        environment-name: TEST
-        init-shell: bash
-        create-args: >-
-          python=${{ matrix.python-version }} pip numpy=${{ matrix.numpy-version }}
-          --file requirements.txt
-          --file requirements-dev.txt
-          --channel conda-forge
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
 
-    - name: Install utide
-      run: >
-        python -m pip install -e . --no-deps --force-reinstall
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy scipy pytest
+          python -m pip install -e . --no-deps
 
-    - name: Run tests
-      run: |
-        pytest -rxs --cov=utide tests
+      - name: Run tests
+        # GPU tests auto-skip when CuPy is not present (no GPU on CI runners).
+        run: pytest -rxs tests

@@ -1,9 +1,7 @@
 # UTide
 
-[![gha](https://github.com/wesleybowman/UTide/actions/workflows/tests.yml/badge.svg)](https://github.com/wesleybowman/UTide/actions)
-[![license](https://anaconda.org/conda-forge/utide/badges/license.svg)](https://choosealicense.com/licenses/mit/)
-[![downloads](https://anaconda.org/conda-forge/utide/badges/downloads.svg)](https://anaconda.org/conda-forge/utide)
-[![anaconda_cloud](https://anaconda.org/conda-forge/utide/badges/version.svg)](https://anaconda.org/conda-forge/utide)
+[![Tests](https://github.com/dhava-gautama/utide-gpu/actions/workflows/tests.yml/badge.svg)](https://github.com/dhava-gautama/utide-gpu/actions/workflows/tests.yml)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](https://choosealicense.com/licenses/mit/)
 
 Python re-implementation of the Matlab package UTide.
 
@@ -94,7 +92,7 @@ from utide import solve, solve_many
 coef = solve(t, h, lat=45, method="ols", conf_int="linear", gpu=True)
 
 # Many series sharing one time base, fit in a single batched solve:
-out = solve_many(t, X, lat=45, gpu=True)          # X is (ntimes, nseries)
+out = solve_many(t, X, lat=45, gpu=True)  # X is (ntimes, nseries)
 
 # Optional single precision for a large extra speedup on consumer GPUs:
 out = solve_many(t, X, lat=45, gpu=True, gpu_precision="single")
@@ -181,7 +179,7 @@ mean tide level (MTL), mean tidal range (MTR), and mean ebb/flood durations
 ```python
 from utide import tidal_characteristics, tidal_characteristics_many
 
-c = tidal_characteristics(t, h)          # one series -> MHW, MLW, MTL, MTR, ED, FD
+c = tidal_characteristics(t, h)  # one series -> MHW, MLW, MTL, MTR, ED, FD
 maps = tidal_characteristics_many(t, X)  # a field (n_times, n_series) -> arrays
 ```
 

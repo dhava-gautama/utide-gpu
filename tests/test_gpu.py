@@ -33,14 +33,23 @@ def _series(nt=2 * 365 * 24, twodim=False, seed=11):
         + 0.1 * rng.standard_normal(nt)
     )
     if twodim:
-        v = 0.6 * np.cos(2 * np.pi * fr["M2"] * 24 * t + 0.7) + 0.1 * rng.standard_normal(nt)
+        v = 0.6 * np.cos(
+            2 * np.pi * fr["M2"] * 24 * t + 0.7,
+        ) + 0.1 * rng.standard_normal(nt)
         return t, u, v
     return t, u, None
 
 
 def test_gpu_matches_cpu_1d():
     t, u, _ = _series()
-    kw = dict(lat=45, constit=CONSTIT, method="ols", conf_int="linear", epoch=EPOCH, verbose=False)
+    kw = {
+        "lat": 45,
+        "constit": CONSTIT,
+        "method": "ols",
+        "conf_int": "linear",
+        "epoch": EPOCH,
+        "verbose": False,
+    }
     c0 = solve(t, u, **kw)
     c1 = solve(t, u, gpu=True, **kw)
     assert np.allclose(c0["A"], c1["A"], rtol=1e-5, atol=1e-8)
@@ -50,7 +59,14 @@ def test_gpu_matches_cpu_1d():
 
 def test_gpu_matches_cpu_2d():
     t, u, v = _series(twodim=True)
-    kw = dict(lat=45, constit=CONSTIT, method="ols", conf_int="linear", epoch=EPOCH, verbose=False)
+    kw = {
+        "lat": 45,
+        "constit": CONSTIT,
+        "method": "ols",
+        "conf_int": "linear",
+        "epoch": EPOCH,
+        "verbose": False,
+    }
     c0 = solve(t, u, v, **kw)
     c1 = solve(t, u, v, gpu=True, **kw)
     assert np.allclose(c0["Lsmaj"], c1["Lsmaj"], rtol=1e-5, atol=1e-8)
@@ -62,7 +78,14 @@ def test_gpu_single_precision_runs_and_is_close():
     # the constituents that carry real signal (near-zero/noise constituents
     # are meaningless in FP32 and may also reorder).
     t, u, _ = _series()
-    kw = dict(lat=45, constit=CONSTIT, method="ols", conf_int="none", epoch=EPOCH, verbose=False)
+    kw = {
+        "lat": 45,
+        "constit": CONSTIT,
+        "method": "ols",
+        "conf_int": "none",
+        "epoch": EPOCH,
+        "verbose": False,
+    }
     c0 = solve(t, u, **kw)
     c1 = solve(t, u, gpu=True, gpu_precision="single", **kw)
     order = [list(c1["name"]).index(n) for n in c0["name"]]
@@ -81,8 +104,14 @@ def test_gpu_robust_matches_cpu():
     u = u.copy()
     idx = rng.choice(len(u), 30, replace=False)
     u[idx] += rng.uniform(-5, 5, 30)  # outliers for the robust weights to act on
-    kw = dict(lat=45, constit=CONSTIT, method="robust", conf_int="none",
-              epoch=EPOCH, verbose=False)
+    kw = {
+        "lat": 45,
+        "constit": CONSTIT,
+        "method": "robust",
+        "conf_int": "none",
+        "epoch": EPOCH,
+        "verbose": False,
+    }
     c0 = solve(t, u, **kw)
     c1 = solve(t, u, gpu=True, **kw)
     order = [list(c1["name"]).index(n) for n in c0["name"]]
@@ -94,8 +123,14 @@ def test_gpu_robust_matches_cpu():
 def test_gpu_fallback_unsupported_option():
     # nodal=False is not the GPU basis path; must fall back and still be correct.
     t, u, _ = _series()
-    kw = dict(lat=45, constit=CONSTIT, method="ols", conf_int="none",
-              nodal=False, verbose=False)
+    kw = {
+        "lat": 45,
+        "constit": CONSTIT,
+        "method": "ols",
+        "conf_int": "none",
+        "nodal": False,
+        "verbose": False,
+    }
     c0 = solve(t, u, **kw)
     c1 = solve(t, u, gpu=True, **kw)
     assert np.allclose(c0["A"], c1["A"], rtol=1e-10, atol=1e-12)
@@ -103,8 +138,16 @@ def test_gpu_fallback_unsupported_option():
 
 def test_gpu_reconstruct_matches_cpu():
     t, u, _ = _series()
-    coef = solve(t, u, lat=45, constit=CONSTIT, method="ols", conf_int="linear",
-                 epoch=EPOCH, verbose=False)
+    coef = solve(
+        t,
+        u,
+        lat=45,
+        constit=CONSTIT,
+        method="ols",
+        conf_int="linear",
+        epoch=EPOCH,
+        verbose=False,
+    )
     a = reconstruct(t, coef, epoch=EPOCH, verbose=False)
     b = reconstruct(t, coef, epoch=EPOCH, gpu=True, verbose=False)
     assert np.allclose(a.h, b.h, rtol=1e-5, atol=1e-6, equal_nan=True)
@@ -132,14 +175,30 @@ def test_solve_many_gappy():
         X[rng.choice(len(t), len(t) // 5, replace=False), s] = np.nan
     om = solve_many(t, X, lat=45, constit=CONSTIT, gpu=True, epoch=EPOCH, verbose=False)
     for s in range(S):
-        c = solve(t, X[:, s], lat=45, constit=CONSTIT, method="ols",
-                  conf_int="none", epoch=EPOCH, verbose=False)
+        c = solve(
+            t,
+            X[:, s],
+            lat=45,
+            constit=CONSTIT,
+            method="ols",
+            conf_int="none",
+            epoch=EPOCH,
+            verbose=False,
+        )
         order = [list(om.name).index(n) for n in c["name"]]
         big = c["A"] > 0.05
         assert np.allclose(c["A"][big], om.A[order, s][big], rtol=1e-4, atol=1e-6)
     Xn = X.copy()
     Xn[:, 0] = np.nan
-    om2 = solve_many(t, Xn, lat=45, constit=CONSTIT, gpu=True, epoch=EPOCH, verbose=False)
+    om2 = solve_many(
+        t,
+        Xn,
+        lat=45,
+        constit=CONSTIT,
+        gpu=True,
+        epoch=EPOCH,
+        verbose=False,
+    )
     assert np.all(np.isnan(om2.A[:, 0]))
 
 
@@ -149,7 +208,7 @@ def test_solve_many_chunked_matches_unchunked():
     t, u, _ = _series()
     X = np.column_stack([(0.5 + 0.2 * i) * u for i in range(20)])
     X = X + 0.05 * rng.standard_normal(X.shape)
-    kw = dict(lat=45, constit=CONSTIT, gpu=True, epoch=EPOCH, verbose=False)
+    kw = {"lat": 45, "constit": CONSTIT, "gpu": True, "epoch": EPOCH, "verbose": False}
     a = solve_many(t, X, **kw)
     b = solve_many(t, X, chunk_size=3, **kw)  # 20 series -> 7 chunks
     assert np.allclose(a.A, b.A, rtol=1e-6, atol=1e-8, equal_nan=True)
@@ -160,7 +219,16 @@ def test_solve_many_matches_solve():
     t, u, _ = _series()
     X = np.column_stack([u, 0.7 * u, 1.3 * u])
     om = solve_many(t, X, lat=45, constit=CONSTIT, gpu=True, epoch=EPOCH, verbose=False)
-    c = solve(t, u, lat=45, constit=CONSTIT, method="ols", conf_int="none", epoch=EPOCH, verbose=False)
+    c = solve(
+        t,
+        u,
+        lat=45,
+        constit=CONSTIT,
+        method="ols",
+        conf_int="none",
+        epoch=EPOCH,
+        verbose=False,
+    )
     order = [list(om.name).index(n) for n in c["name"]]
     assert np.allclose(c["A"], om.A[order, 0], rtol=1e-5, atol=1e-8)
     # phase wrapped difference
