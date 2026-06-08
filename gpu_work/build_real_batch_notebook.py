@@ -54,7 +54,10 @@ cells = [
  md("## 3. Maps and tidal classification",
     "",
     "From the per-station amplitudes we form the tidal *form factor*",
-    "F = (K1+O1)/(M2+S2): F < 0.25 is semidiurnal, F > 1.5 is (mixed-)diurnal."),
+    "F = (K1+O1)/(M2+S2): F < 0.25 is semidiurnal, F > 1.5 is (mixed-)diurnal.",
+    "",
+    "*(Install `cartopy` for the coastline basemap; without it the points are",
+    "plotted on plain longitude/latitude axes.)*"),
  code("def amp(n): return out.A[list(out.name).index(n)]\n"
       "M2, S2, K1, O1 = amp(\"M2\"), amp(\"S2\"), amp(\"K1\"), amp(\"O1\")\n"
       "form = (K1 + O1) / (M2 + S2)\n"
@@ -62,13 +65,23 @@ cells = [
       "print(f\"largest M2: {names[hi]} ({M2[hi]:.2f} m); smallest: {names[lo]} ({M2[lo]:.3f} m)\")\n"
       "print(\"diurnal/mixed-diurnal (form>1.5):\", \", \".join(np.asarray(names)[form > 1.5]))\n"
       "\n"
-      "fig, ax = plt.subplots(1, 2, figsize=(13, 4.5))\n"
-      "s0 = ax[0].scatter(lons, lats, c=M2, s=60, cmap=\"viridis\", edgecolor=\"k\", lw=0.3)\n"
-      "ax[0].set_title(\"M2 amplitude (m)\"); fig.colorbar(s0, ax=ax[0])\n"
-      "s1 = ax[1].scatter(lons, lats, c=np.clip(form, 0, 4), s=60, cmap=\"coolwarm\", edgecolor=\"k\", lw=0.3)\n"
-      "ax[1].set_title(\"Tidal form factor (K1+O1)/(M2+S2)\"); fig.colorbar(s1, ax=ax[1])\n"
-      "for a in ax:\n"
-      "    a.set_xlabel(\"longitude\"); a.set_ylabel(\"latitude\"); a.set_xlim(-180, -64)\n"
+      "try:\n"
+      "    import cartopy.crs as ccrs, cartopy.feature as cfeature\n"
+      "    proj = ccrs.PlateCarree(); spk = {\"projection\": proj}\n"
+      "except ImportError:\n"
+      "    proj = spk = None\n"
+      "fig, ax = plt.subplots(1, 2, figsize=(14, 4.6), subplot_kw=spk)\n"
+      "for a, (title, c, cmap) in zip(ax, [(\"M2 amplitude (m)\", M2, \"viridis\"),\n"
+      "        (\"Tidal form factor (K1+O1)/(M2+S2)\", np.clip(form, 0, 4), \"coolwarm\")]):\n"
+      "    if proj is not None:\n"
+      "        a.add_feature(cfeature.LAND, facecolor=\"0.93\")\n"
+      "        a.add_feature(cfeature.COASTLINE, linewidth=0.4)\n"
+      "        a.add_feature(cfeature.STATES, linewidth=0.2, edgecolor=\"0.7\")\n"
+      "        a.set_extent([-180, -64, 16, 64], crs=proj)\n"
+      "        sc = a.scatter(lons, lats, c=c, s=55, cmap=cmap, edgecolor=\"k\", lw=0.3, transform=proj, zorder=5)\n"
+      "    else:\n"
+      "        sc = a.scatter(lons, lats, c=c, s=55, cmap=cmap, edgecolor=\"k\", lw=0.3); a.set_xlim(-180, -64)\n"
+      "    a.set_title(title); fig.colorbar(sc, ax=a, shrink=0.8)\n"
       "fig.tight_layout(); plt.show()"),
  md("That co-amplitude map and tidal classification for all 39 stations came from a",
     "single `solve_many` call. Swap in thousands of model-grid cells or altimetry",
