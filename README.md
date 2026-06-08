@@ -148,3 +148,22 @@ looping `solve`, and matching the per-cell result to round-off. See
 
 A runnable version of the figure above is in
 [`examples/gpu_batch_grid.py`](examples/gpu_batch_grid.py).
+
+# Tidal datums
+
+Alongside harmonic analysis, UTide can compute standard **empirical tidal
+datums** directly from a water-level series — mean high/low water (MHW/MLW),
+mean tide level (MTL), mean tidal range (MTR), and mean ebb/flood durations
+(ED/FD):
+
+```python
+from utide import tidal_characteristics, tidal_characteristics_many
+
+c = tidal_characteristics(t, h)          # one series -> MHW, MLW, MTL, MTR, ED, FD
+maps = tidal_characteristics_many(t, X)  # a field (n_times, n_series) -> arrays
+```
+
+This pairs naturally with `solve_many`: constituent maps *and* datum maps over
+the same grid. The datum set follows DHI's
+[tide_analytics](https://github.com/DHI/tide_analytics); this is an independent
+NumPy/SciPy implementation.
