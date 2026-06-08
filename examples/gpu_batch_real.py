@@ -61,22 +61,38 @@ print(f"\nlargest M2: {names[hi]} ({M2[hi]:.2f} m);  smallest: {names[lo]} ({M2[
 print(f"diurnal/mixed-diurnal stations (form>1.5): "
       f"{', '.join(np.asarray(names)[form > 1.5][:6])} ...")
 
-# --- maps ------------------------------------------------------------------
+# --- maps (with a coastline basemap if cartopy is available) --------------
 try:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    fig, ax = plt.subplots(1, 2, figsize=(13, 4.5))
-    s0 = ax[0].scatter(lons, lats, c=M2, s=60, cmap="viridis", edgecolor="k", lw=0.3)
-    ax[0].set_title("M2 amplitude (m)"); fig.colorbar(s0, ax=ax[0])
-    s1 = ax[1].scatter(lons, lats, c=np.clip(form, 0, 4), s=60, cmap="coolwarm",
-                       edgecolor="k", lw=0.3)
-    ax[1].set_title("Tidal form factor  (K1+O1)/(M2+S2)"); fig.colorbar(s1, ax=ax[1])
-    for a in ax:
-        a.set_xlabel("longitude"); a.set_ylabel("latitude"); a.set_xlim(-180, -64)
+    try:
+        import cartopy.crs as ccrs
+        import cartopy.feature as cfeature
+        proj = ccrs.PlateCarree()
+        spk = {"projection": proj}
+    except ImportError:
+        proj = spk = None
+
+    fig, ax = plt.subplots(1, 2, figsize=(14, 4.6), subplot_kw=spk)
+    panels = [("M2 amplitude (m)", M2, "viridis"),
+              ("Tidal form factor  (K1+O1)/(M2+S2)", np.clip(form, 0, 4), "coolwarm")]
+    for a, (title, c, cmap) in zip(ax, panels):
+        if proj is not None:
+            a.add_feature(cfeature.LAND, facecolor="0.93")
+            a.add_feature(cfeature.OCEAN, facecolor="0.99")
+            a.add_feature(cfeature.COASTLINE, linewidth=0.4)
+            a.add_feature(cfeature.STATES, linewidth=0.2, edgecolor="0.7")
+            a.set_extent([-180, -64, 16, 64], crs=proj)
+            sc = a.scatter(lons, lats, c=c, s=55, cmap=cmap, edgecolor="k",
+                           lw=0.3, transform=proj, zorder=5)
+        else:
+            sc = a.scatter(lons, lats, c=c, s=55, cmap=cmap, edgecolor="k", lw=0.3)
+            a.set_xlim(-180, -64); a.set_xlabel("longitude"); a.set_ylabel("latitude")
+        a.set_title(title); fig.colorbar(sc, ax=a, shrink=0.8)
     fig.suptitle(f"Tides at {nstn} NOAA stations from one solve_many call "
                  f"({per*nstn/gpu_t:.0f}x faster than looping)")
-    fig.tight_layout(); fig.savefig(os.path.join(HERE, "noaa_tides.png"), dpi=90)
+    fig.tight_layout(); fig.savefig(os.path.join(HERE, "noaa_tides.png"), dpi=95)
     print("\nsaved figure -> examples/noaa_tides.png")
 except ImportError:
     print("(matplotlib not installed; skipping plot)")
