@@ -123,12 +123,17 @@ series that share one time base** — an ocean-model SSH grid, satellite
 altimetry, or an array of tide gauges / moorings. `solve_many` builds the
 harmonic model once and solves every series in a single batched call.
 
-![M2 co-tidal maps recovered over a grid with one solve_many call](examples/m2_grid.png)
+![M2 amplitude and tidal form factor at 39 NOAA tide gauges from one solve_many call](examples/noaa_tides.png)
 
-*M2 amplitude and phase recovered for every cell of a 64×64 grid (1 year of
-hourly data per cell) with a single `solve_many` call — about 240× faster than
-looping `solve`, and matching the per-cell result to round-off. See
-[`notebooks/gpu_batch_example.ipynb`](notebooks/gpu_batch_example.ipynb).*
+*One `solve_many` call recovers the constituents at all 39 NOAA stations (one
+year of real hourly data, [public domain](https://tidesandcurrents.noaa.gov)) —
+matching the per-station fit to round-off and reproducing the known
+oceanography: the largest M2 in Cook Inlet and the Bay of Fundy, and a diurnal
+Gulf of Mexico (high form factor, right). Notebook:
+[`notebooks/gpu_batch_real_example.ipynb`](notebooks/gpu_batch_real_example.ipynb).
+The same call scales to thousands of model-grid cells — a synthetic 64×64 grid
+runs ~240× faster than looping `solve`
+([`notebooks/gpu_batch_example.ipynb`](notebooks/gpu_batch_example.ipynb)).*
 
 **Where it shines**
 
@@ -146,8 +151,9 @@ looping `solve`, and matching the per-cell result to round-off. See
 - A single, short record (≲ a year): the GPU's setup cost is not worth it; plain
   `solve(...)` is the right tool.
 
-A runnable version of the figure above is in
-[`examples/gpu_batch_grid.py`](examples/gpu_batch_grid.py).
+Runnable scripts: [`examples/gpu_batch_real.py`](examples/gpu_batch_real.py)
+(the 39 real stations above) and
+[`examples/gpu_batch_grid.py`](examples/gpu_batch_grid.py) (the synthetic grid).
 
 # Tidal datums
 
@@ -175,8 +181,12 @@ NumPy/SciPy implementation.
   `can1998.dtf`): GPU harmonic analysis, prediction versus observations, and
   tidal datums. Also available as a script,
   [`examples/real_station.py`](examples/real_station.py).
+- [`notebooks/gpu_batch_real_example.ipynb`](notebooks/gpu_batch_real_example.ipynb)
+  — the batch use case on **39 real NOAA tide gauges**: constituents and tidal
+  classification everywhere from one `solve_many` call.
 - [`notebooks/gpu_batch_example.ipynb`](notebooks/gpu_batch_example.ipynb)
-  — extracting constituents over a **whole grid** with one `solve_many` call.
+  — the same over a **synthetic grid**, showing the speed-up scale to thousands
+  of cells.
 
 ![Prediction vs observations (top) and tidal datums (bottom) for a real tide-gauge record](examples/real_station.png)
 
