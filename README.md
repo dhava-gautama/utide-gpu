@@ -115,3 +115,36 @@ Highlights:
 
 Requires CuPy with a working CUDA device, e.g. `pip install cupy-cuda12x`. If
 CuPy is not installed, importing and using UTide on the CPU is unaffected.
+
+# Use cases
+
+The GPU backend and `solve_many` pay off most when you have **many tidal time
+series that share one time base** — an ocean-model SSH grid, satellite
+altimetry, or an array of tide gauges / moorings. `solve_many` builds the
+harmonic model once and solves every series in a single batched call.
+
+![M2 co-tidal maps recovered over a grid with one solve_many call](examples/m2_grid.png)
+
+*M2 amplitude and phase recovered for every cell of a 64×64 grid (1 year of
+hourly data per cell) with a single `solve_many` call — about 240× faster than
+looping `solve`, and matching the per-cell result to round-off. See
+[`notebooks/gpu_batch_example.ipynb`](notebooks/gpu_batch_example.ipynb).*
+
+**Where it shines**
+
+- **A field of series (the big one).** `solve_many(t, X)` with `X` shaped
+  `(n_times, n_series)` returns amplitudes/phases for every series at once —
+  ~100×+ faster than looping `solve`, with per-series gap handling and
+  streaming of batches larger than GPU memory.
+- **Long, high-rate records.** `solve(t, h, gpu=True)` accelerates the
+  harmonic-basis construction, which dominates the cost of a single long fit.
+- **First-pass screening of huge datasets.** `gpu_precision="single"` trades a
+  few digits of precision for a large extra speed-up.
+
+**When the CPU is fine**
+
+- A single, short record (≲ a year): the GPU's setup cost is not worth it; plain
+  `solve(...)` is the right tool.
+
+A runnable version of the figure above is in
+[`examples/gpu_batch_grid.py`](examples/gpu_batch_grid.py).
