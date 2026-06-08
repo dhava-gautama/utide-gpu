@@ -9,7 +9,12 @@ array for the `solve_many` real-data example
 Arrays: `t_days` (hours since 2023-01-01, in days), `levels` (m, MSL datum),
 `ids`, `names`, `lats`, `lons`, `year`.
 
+`noaa_harcon.json` — NOAA's official accepted harmonic constants (amplitude in
+metres, Greenwich phase in degrees) for the same stations, used by the
+validation example/test ([`../noaa_validation.py`](../noaa_validation.py),
+`../../tests/test_noaa_validation.py`).
+
 **Source:** NOAA CO-OPS, https://tidesandcurrents.noaa.gov — U.S. Government
-work, public domain. Retrieved via the CO-OPS Data API
-(`product=hourly_height`). See `../../gpu_work/fetch_noaa.py` for the fetch
-script.
+work, public domain. Retrieved via the CO-OPS Data API (`product=hourly_height`)
+and the metadata API (`harcon.json`). See `../../gpu_work/fetch_noaa.py` and
+`../../gpu_work/fetch_harcon.py` for the fetch scripts.

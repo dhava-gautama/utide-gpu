@@ -155,6 +155,19 @@ Runnable scripts: [`examples/gpu_batch_real.py`](examples/gpu_batch_real.py)
 (the 39 real stations above) and
 [`examples/gpu_batch_grid.py`](examples/gpu_batch_grid.py) (the synthetic grid).
 
+# Validation
+
+UTide reproduces NOAA's **official published harmonic constants**. Analysing one
+year (2023) of hourly data at the 39 NOAA stations above and comparing against
+NOAA's accepted constants (derived from ~19 years of record), amplitudes agree
+to a median of **2.2 %** and Greenwich phases to **0.6°** across 349
+station/constituent comparisons:
+
+![UTide vs NOAA official harmonic constants](examples/noaa_validation.png)
+
+Reproduce with [`examples/noaa_validation.py`](examples/noaa_validation.py); the
+check also runs in the test suite (`tests/test_noaa_validation.py`).
+
 # Tidal datums
 
 Alongside harmonic analysis, UTide can compute standard **empirical tidal
