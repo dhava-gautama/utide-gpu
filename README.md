@@ -167,3 +167,19 @@ This pairs naturally with `solve_many`: constituent maps *and* datum maps over
 the same grid. The datum set follows DHI's
 [tide_analytics](https://github.com/DHI/tide_analytics); this is an independent
 NumPy/SciPy implementation.
+
+# Examples
+
+- [`notebooks/real_station_example.ipynb`](notebooks/real_station_example.ipynb)
+  — the full workflow on a **real tide-gauge record** (the shipped
+  `can1998.dtf`): GPU harmonic analysis, prediction versus observations, and
+  tidal datums. Also available as a script,
+  [`examples/real_station.py`](examples/real_station.py).
+- [`notebooks/gpu_batch_example.ipynb`](notebooks/gpu_batch_example.ipynb)
+  — extracting constituents over a **whole grid** with one `solve_many` call.
+
+![Prediction vs observations (top) and tidal datums (bottom) for a real tide-gauge record](examples/real_station.png)
+
+*UTide on a real one-year hourly record: the fitted tide predicts the
+observations (M2 ≈ 0.37 m dominant, 79% of variance explained), and the high/low
+waters give the datums (MHW, MLW, MTR).*
