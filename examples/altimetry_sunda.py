@@ -141,17 +141,39 @@ def main():
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    try:
+        import cartopy.crs as ccrs
+        import cartopy.feature as cfeature
+        HAVE_CARTOPY = True
+    except ImportError:
+        HAVE_CARTOPY = False
 
     fig = plt.figure(figsize=(13.5, 10.5))
     gs = fig.add_gridspec(3, 2, width_ratios=[1.25, 1], height_ratios=[1, 1.05, 0.8],
                           hspace=0.42, wspace=0.24)
-    axA = fig.add_subplot(gs[:, 0])
+    extent = [lon.min() - 0.3, lon.max() + 0.3, lat.min() - 0.3, lat.max() + 0.3]
+    transform = None
+    if HAVE_CARTOPY:
+        axA = fig.add_subplot(gs[:, 0], projection=ccrs.PlateCarree())
+        axA.set_extent(extent, ccrs.PlateCarree())
+        axA.add_feature(cfeature.LAND.with_scale("10m"), facecolor="#efe8d8", zorder=0)
+        axA.add_feature(cfeature.OCEAN.with_scale("10m"), facecolor="#d6e8f5", zorder=0)
+        axA.coastlines(resolution="10m", linewidth=0.6, zorder=2)
+        gl = axA.gridlines(draw_labels=True, linewidth=0.3, linestyle=":",
+                           x_inline=False, y_inline=False)
+        gl.top_labels = False
+        gl.right_labels = False
+        transform = ccrs.PlateCarree()
+    else:
+        axA = fig.add_subplot(gs[:, 0])
+        axA.set_xlim(extent[:2])
+        axA.set_ylim(extent[2:])
+        axA.set_xlabel("Longitude [deg E]")
+        axA.set_ylabel("Latitude [deg N]")
     sc = axA.scatter(lon, lat, c=A_obs[m2] * 100,
                      s=6 + np.sum(np.isfinite(A_obs), axis=0) / 4, cmap="viridis",
-                     edgecolors="k", linewidths=0.2)
-    plt.colorbar(sc, ax=axA, label="fitted M2 amplitude (cm)")
-    axA.set_xlabel("Longitude [deg E]")
-    axA.set_ylabel("Latitude [deg N]")
+                     edgecolors="k", linewidths=0.2, transform=transform, zorder=5)
+    plt.colorbar(sc, ax=axA, label="fitted M2 amplitude (cm)", shrink=0.75, pad=0.02)
     axA.set_title("A | UTide harmonic fit of along-track altimetry (S6a + J3n)\n"
                   f"{A_obs.shape[1]} point series, one solve_many(gappy='ne') call",
                   fontsize=10)
