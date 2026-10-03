@@ -178,6 +178,24 @@ Reproduce with [`examples/altimetry_sunda.py`](examples/altimetry_sunda.py) —
 it downloads the data with the free `copernicusmarine` CLI and runs on CPU or
 GPU.*
 
+# HF-radar surface currents
+
+Current fields add the vector dimension: one
+`solve_many(t, u, v, gappy="ne")` call fits every grid cell jointly and
+returns current-ellipse parameters (Lsmaj, Lsmin, theta, g) per constituent
+per cell, and `reconstruct_many` predicts the full u/v field from the batch
+result:
+
+![UTide 2-D tidal analysis of a WERA HF-radar surface-current field in the Sunda Strait](examples/wera_ellipses_demo.png)
+
+*The authors' WERA product: 6,566 grid cells x 9 constituents, 131 days of
+half-hourly data (Nov 2025 – Mar 2026) — 1.9 s on an RTX 4060 vs 8.7 s CPU.
+K1 is the dominant constituent in this record (Java-Sea diurnal regime); the
+harmonic fit explains up to 73% of the current variance at well-resolved
+cells. Reproduce with
+[`examples/hfradar_ellipses.py`](examples/hfradar_ellipses.py) on any
+total-current netCDF (`water_u`/`water_v` on time/lat/lon).*
+
 # Validation
 
 UTide reproduces NOAA's **official published harmonic constants**. Analysing one
