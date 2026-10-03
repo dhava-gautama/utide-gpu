@@ -2,6 +2,9 @@
 Central module for calculating the tidal amplitudes, phases, etc.
 """
 
+import hashlib
+from collections import OrderedDict
+
 import numpy as np
 
 from ._time_conversion import _normalize_time
@@ -12,6 +15,37 @@ from .ellipse_params import ut_cs2cep
 from .harmonics import ut_E
 from .robustfit import robustfit
 from .utilities import Bunch
+
+# LRU cache of built bases (see solve_many._build_basis). Keyed by everything
+# that determines the basis: time base, constituents, nodal/phase flags,
+# band latitude, backend and precision. Byte-budgeted so huge ``auto``
+# constituent sets cannot accumulate unbounded host/VRAM usage.
+_BASIS_CACHE = OrderedDict()
+_BASIS_CACHE_MAX_BYTES = 512 << 20
+
+
+def _basis_cache_get(key):
+    B = _BASIS_CACHE.get(key)
+    if B is not None:
+        _BASIS_CACHE.move_to_end(key)
+    return B
+
+
+def _basis_cache_put(key, B):
+    _BASIS_CACHE[key] = B
+    _BASIS_CACHE.move_to_end(key)
+    sizes = {k: int(v.dtype.itemsize * v.size) for k, v in _BASIS_CACHE.items()}
+    total = sum(sizes.values())
+    for k, s in list(sizes.items()):  # single oversized entry: never cache
+        if s > _BASIS_CACHE_MAX_BYTES:
+            del _BASIS_CACHE[k]
+            total -= s
+    for k, s in list(sizes.items()):  # evict oldest until within budget
+        if total <= _BASIS_CACHE_MAX_BYTES:
+            break
+        if k in _BASIS_CACHE:
+            del _BASIS_CACHE[k]
+            total -= s
 
 default_opts = {
     "constit": "auto",
@@ -258,6 +292,7 @@ def solve_many(
     gpu_precision="double",
     chunk_size=None,
     solver="lstsq",
+    gappy="auto",
     lat_bin=2.0,
 ):
     """
@@ -308,6 +343,19 @@ def solve_many(
         consumer GPUs with throttled double precision (the per-chunk matmuls
         dominate), so it is opt-in rather than the default. Single precision
         always uses ``lstsq``.
+    gappy : {'auto', 'group', 'ne'}, optional
+        How gappy series (per-series NaN gaps) are solved. 'group' (the
+        historical path) groups series that share an identical valid-sample
+        pattern and solves each group with one factorization -- fast when
+        many series share gaps, but degenerates to one solve per series when
+        every series has its own gap pattern. 'ne' builds one (nm x nm)
+        masked normal-equation system per series from the shared basis and
+        solves them all in a single batched call, independent of gap
+        patterns; the added conditioning of the Gram matrix is gated by a
+        per-series fallback to the grouped path. 'auto' (default) uses 'ne'
+        only when a latitude band has more than 8 distinct gap patterns,
+        where grouping stops amortizing. Series below the sample floor are
+        returned as NaN under both methods.
     lat_bin : float, optional
         Latitude-band width in degrees used when ``lat`` is an array; series
         within a band share one basis. Default 2.0 (the nodal correction varies
@@ -323,12 +371,19 @@ def solve_many(
 
     Notes
     -----
-    Per-series gaps are supported: series are grouped by their valid-sample
-    pattern and each group is solved with its own model matrix (no-gap data is
-    a single group, the fast path). All series share the constituent set
-    selected from the full time base. Series that are entirely NaN, or that
-    have fewer valid samples than model parameters, are returned as NaN. Rows
-    where ``t`` itself is NaN are dropped for all series.
+    Per-series gaps are supported: depending on ``gappy`` the gappy series are
+    either grouped by their valid-sample pattern (one factorization per
+    pattern) or solved through batched masked normal equations (one small
+    system per series, no grouping). No-gap data always takes the single
+    fast batched path. All series share the constituent set selected from
+    the full time base. Series that are entirely NaN, or that have fewer
+    valid samples than model parameters, are returned as NaN. Rows where
+    ``t`` itself is NaN are dropped for all series.
+
+    The basis depends only on the time base, constituents, nodal/phase
+    flags, band latitude, backend and precision; it is cached (LRU, byte
+    budgeted) so repeated ``solve_many`` calls with the same time base skip
+    the rebuild, which typically dominates runtime.
     """
     from ._backend import asnumpy, get_xp
     from ._harmonics_xp import gpu_supported, ut_E_xp
@@ -371,6 +426,10 @@ def solve_many(
     use_gpu = bool(gpu) and gpu_supported(ngflgs)
     xp = get_xp(use_gpu)
     gpu_single = use_gpu and gpu_precision == "single"
+    gappy_mode = gappy
+    ne_used = False
+    if gappy_mode not in ("auto", "group", "ne"):
+        raise ValueError("gappy must be 'auto', 'group', or 'ne'")
 
     # Latitude: a scalar (one nodal correction for the whole batch) or one value
     # per series. With per-series latitudes the stations are grouped into bands
@@ -383,7 +442,22 @@ def solve_many(
         if lat_arr.shape != (S,):
             raise ValueError("lat must be a scalar or one value per series")
 
+    _basis_sig = (
+        hashlib.md5(np.ascontiguousarray(t, dtype="<f8").tobytes()).hexdigest(),
+        float(tref),
+        bool(trend),
+        tuple(int(f) for f in ngflgs),
+        bool(gpu_single),
+        bool(use_gpu),
+        tuple(np.asarray(cnstit.NR.frq, dtype=float).tolist()),
+        tuple(np.asarray(cnstit.NR.lind, dtype=int).tolist()),
+    )
+
     def _build_basis(blat):
+        key = (_basis_sig, round(float(blat), 6))
+        cached = _basis_cache_get(key)
+        if cached is not None:
+            return cached
         if use_gpu:
             E = ut_E_xp(
                 xp,
@@ -401,6 +475,7 @@ def solve_many(
         if trend:
             tc = xp.asarray((t - tref) / lor)[:, np.newaxis].astype(E.real.dtype)
             B = xp.hstack((B, tc))
+        _basis_cache_put(key, B)
         return B
 
     def _auto_chunk(B, nrows):
@@ -442,9 +517,58 @@ def solve_many(
         Mg = parts[0] if len(parts) == 1 else np.concatenate(parts, axis=1)
         return Mg.astype(np.complex128) if Mg.dtype == np.complex64 else Mg
 
+    def _solve_gappy_ne(B, gappy_cols):
+        # Masked batched normal equations: one (nm x nm) system per series,
+        # accumulated from the shared basis -- no grouping by gap pattern, so
+        # series with distinct gaps are still solved in batch. N_s =
+        # sum_t mask[t, s] * conj(b_t) b_t^T, rhs_s = B^H x_s (masked to 0).
+        cols_all = np.asarray(gappy_cols)
+        nvalid = present[:, cols_all].sum(axis=0)
+        keep = cols_all[nvalid > nm]
+        dropped = int(len(cols_all) - len(keep))
+        if keep.size == 0:
+            return 0, dropped
+        if use_gpu:
+            free, _total = xp.cuda.runtime.memGetInfo()
+            per_series = nm * nm * B.dtype.itemsize * 4  # N + solve workspace
+            budget = int(free * 0.25) if chunk_size is None else (1 << 62)
+            scc = min(len(keep), max(1, budget // per_series))
+        else:
+            scc = len(keep)
+        tchunk = max(1024, int(96e6 // (nm * nm * B.dtype.itemsize)))
+        for i0 in range(0, len(keep), scc):
+            cols = keep[i0 : i0 + scc]
+            Pc = present[:, cols]
+            Wt = xp.asarray(Pc.astype(B.real.dtype)).T.astype(B.dtype)  # (Scc, nt)
+            Xz = xp.asarray(np.where(Pc, X[:, cols], 0), dtype=B.dtype)
+            rhs = B.conj().T @ Xz  # (nm, Scc)
+            N = xp.zeros((len(cols), nm, nm), dtype=B.dtype)
+            for i in range(0, nt, tchunk):
+                Bc = B[i : i + tchunk]
+                outer = Bc[:, :, None].conj() * Bc[:, None, :]  # (tc, nm, nm)
+                N += (Wt[:, i : i + tchunk] @ outer.reshape(-1, nm * nm)).reshape(
+                    len(cols), nm, nm
+                )
+            try:
+                sol = xp.linalg.solve(N, xp.swapaxes(rhs, 0, 1)[:, :, None])
+                M[:, cols] = asnumpy(sol[:, :, 0].T).astype(np.complex128)
+            except Exception:
+                # Rank-deficient / singular Gram system: fall back per series
+                # to the grouped-path solver (lstsq, minimum-norm), which is
+                # also what the historical path does for such designs.
+                for col in cols:
+                    rows = present[:, col]
+                    try:
+                        M[:, col] = _solve_group(B, rows, np.asarray([col]))[:, 0]
+                    except Exception:  # noqa: BLE001
+                        pass  # leave NaN
+        return 1, dropped
+
     def _solve_block(B, block_cols):
-        # Within one basis (latitude band), batch stations that share a
-        # valid-sample mask so the model matrix is factored once per gap pattern.
+        # Within one basis (latitude band): no-gap columns take the batched
+        # fast path; gappy columns are either grouped by valid-sample pattern
+        # or solved with masked batched normal equations (see ``gappy``).
+        nonlocal ne_used
         ng = dropped = 0
         colok = present[:, block_cols].all(axis=0)
         cf = block_cols[colok]
@@ -453,20 +577,29 @@ def solve_many(
             ng += 1
         gappy = block_cols[~colok]
         if gappy.size:
-            keys = np.packbits(present[:, gappy], axis=0).T
-            groups = {}
-            for j, col in enumerate(gappy):
-                if not present[:, col].any():
-                    dropped += 1
-                    continue
-                groups.setdefault(keys[j].tobytes(), []).append(col)
-            for gcols in groups.values():
-                rows = present[:, gcols[0]]
-                if int(rows.sum()) <= nm:
-                    dropped += len(gcols)
-                    continue
-                M[:, np.asarray(gcols)] = _solve_group(B, rows, np.asarray(gcols))
-                ng += 1
+            if gappy_mode == "ne":
+                use_ne = True
+            else:
+                keys = np.packbits(present[:, gappy], axis=0).T
+                use_ne = gappy_mode == "auto" and len({k.tobytes() for k in keys}) > 8
+            if use_ne:
+                ne_used = True
+                ng_ne, dropped = _solve_gappy_ne(B, gappy)
+                ng += ng_ne
+            else:
+                groups = {}
+                for j, col in enumerate(gappy):
+                    if not present[:, col].any():
+                        dropped += 1
+                        continue
+                    groups.setdefault(keys[j].tobytes(), []).append(col)
+                for gcols in groups.values():
+                    rows = present[:, gcols[0]]
+                    if int(rows.sum()) <= nm:
+                        dropped += len(gcols)
+                        continue
+                    M[:, np.asarray(gcols)] = _solve_group(B, rows, np.asarray(gcols))
+                    ng += 1
         return ng, dropped
 
     M = np.full((nm, S), np.nan, dtype=np.complex128)
@@ -491,9 +624,10 @@ def solve_many(
         where = "gpu" if use_gpu else "cpu"
         bandmsg = f", {len(bands)} lat bands" if len(bands) > 1 else ""
         drop = f", {n_dropped} series too gappy (NaN)" if n_dropped else ""
+        gapmsg = " [masked-NE]" if ne_used else ""
         print(
             f"solve_many: {S} series, {nNR} constituents, {nt} times "
-            f"[{where}]{bandmsg}{drop} ...",
+            f"[{where}]{bandmsg}{drop}{gapmsg} ...",
         )
 
     ap = M[:nNR]

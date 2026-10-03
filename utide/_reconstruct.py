@@ -213,7 +213,7 @@ def reconstruct_many(t, coefs, epoch=None, gpu=True):
         Times to predict at (days or datetime-like; same convention as the
         ``solve_many`` call that produced ``coefs``).
     coefs : `Bunch`
-        The output of :func:`utide.solve_many` (scalar / 1-D case).
+        The output of :func:`utide.solve_many` (scalar or 2-D).
     epoch : optional
         As in :func:`utide.solve`; needed when ``t`` is a float datenum.
     gpu : bool, optional
@@ -222,25 +222,37 @@ def reconstruct_many(t, coefs, epoch=None, gpu=True):
     Returns
     -------
     h : ndarray, shape (n_times, n_series)
-        Predicted water level for each series.
+        Predicted water level for each series (scalar / 1-D input).
+    out : `Bunch`
+        For 2-D (u, v) input: ``out.u`` and ``out.v``, each of shape
+        (n_times, n_series), with mean and trend folded in.
 
     Notes
     -----
-    Velocity / 2-D ``solve_many`` output is not yet supported here; reconstruct
-    those series individually with :func:`utide.reconstruct`.
+    Rows where ``t`` is NaN are not specially handled here (they yield NaN
+    predictions); mask them on input if needed. As with the scalar path, a
+    multi-band (per-series latitude) fit is predicted with a single basis at
+    ``aux['lat']`` (the median latitude), which is accurate for bands of a
+    couple of degrees.
     """
-    if "A" not in coefs:
-        raise NotImplementedError(
-            "reconstruct_many supports scalar (1-D) solve_many output; use "
-            "reconstruct() per series for velocity (u, v) results.",
-        )
     from ._backend import asnumpy, get_xp
     from ._harmonics_xp import gpu_supported, ut_E_xp
 
     aux = coefs["aux"]
     t = _normalize_time(np.atleast_1d(t), epoch).astype(float)
     rpd = np.pi / 180
-    ap = 0.5 * np.asarray(coefs["A"]) * np.exp(-1j * np.asarray(coefs["g"]) * rpd)
+
+    twodim = "Lsmaj" in coefs
+    if twodim:
+        Lsmaj = np.asarray(coefs["Lsmaj"])
+        Lsmin = np.asarray(coefs["Lsmin"])
+        theta = np.asarray(coefs["theta"])
+        g = np.asarray(coefs["g"])
+        ap = 0.5 * (Lsmaj + Lsmin) * np.exp(1j * (theta - g) * rpd)
+        am = 0.5 * (Lsmaj - Lsmin) * np.exp(1j * (theta + g) * rpd)
+    else:
+        ap = 0.5 * np.asarray(coefs["A"]) * np.exp(-1j * np.asarray(coefs["g"]) * rpd)
+        am = np.conj(ap)
 
     use_gpu = bool(gpu) and gpu_supported(aux["ngflgs"])
     xp = get_xp(use_gpu)
@@ -265,7 +277,18 @@ def reconstruct_many(t, coefs, epoch=None, gpu=True):
             [],
         )
     apd = xp.asarray(ap)
-    h = asnumpy(E @ apd + E.conj() @ apd.conj()).real  # (n_times, n_series)
+    amd = xp.asarray(am)
+    fit = asnumpy(E @ apd + E.conj() @ amd)
+    if twodim:
+        out = Bunch()
+        out.u = fit.real + np.asarray(coefs["umean"])[None, :]
+        out.v = fit.imag + np.asarray(coefs["vmean"])[None, :]
+        if aux.get("trend"):
+            dt = (t - aux["reftime"])[:, None]
+            out.u = out.u + np.asarray(coefs["uslope"])[None, :] * dt
+            out.v = out.v + np.asarray(coefs["vslope"])[None, :] * dt
+        return out
+    h = fit.real  # scalar am == conj(ap), so the sum is real
     h = h + np.asarray(coefs["mean"])[None, :]
     if aux.get("trend") and "slope" in coefs:
         h = h + np.asarray(coefs["slope"])[None, :] * (t - aux["reftime"])[:, None]

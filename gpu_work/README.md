@@ -68,12 +68,32 @@ ssh dhava@100.118.127.87 'cd ~/utide-gpu && source venv/bin/activate && \
   *series*, not time -- a single huge-nt series whose basis won't fit is still
   unhandled (see TODO).
 
+## Done (gappy batch + cache + 2-D reconstruct, 2026-10-03)
+- **Masked batched normal equations** in `solve_many(..., gappy='ne')` (new opt;
+  `'auto'` default uses it when a lat band has > 8 distinct gap patterns, `'group'`
+  keeps the historical grouped path). One (nm x nm) Gram system per series is
+  accumulated from the shared basis (time-chunked outer products) and all series
+  are solved in one batched call -- the many-distinct-gap-patterns case is no
+  longer loop-bound. Per-series fallback to the grouped solver for singular Gram
+  systems; series-chunking bounds VRAM for large S. Same drop rule and NaN
+  semantics as the grouped path (verified on real gappy data).
+- **Basis LRU cache** (512 MB budget) keyed on time base + constituents +
+  nodal/phase flags + band latitude + backend/precision; repeat `solve_many`
+  calls with the same time base skip the rebuild (ut_E was ~75-80% of solve time).
+- **`reconstruct_many` 2-D support**: returns `Bunch(u, v)` from
+  Lsmaj/Lsmin/theta/g (scalar path unchanged, still returns the `h` array).
+- Real-data validation (291 gappy BADA cells x 28,967 hourly steps, RTX 4060,
+  7 constituents, warm basis): CPU 2.08 -> 0.25 s, GPU FP64 3.60 -> 0.29 s,
+  GPU FP32 2.27 -> 0.16 s; cold GPU first call 1.05 -> 0.37 s. Gappy-NE FP32
+  accuracy vs CPU FP64: 5.7e-6 rel (grouped FP32 was 7.1e-5 on this batch).
+  `gpu_work/smoke_bada.py` + `make_bada_batch.py` cover the real batch; full
+  suite green on the GPU box.
+
 ## TODO before any publish (hardening)
 - Time-axis chunking for a single series with huge nt (basis intermediates won't
-  fit); would need normal-equations accumulation, FP64 only for stability.
+  fit); the gappy-NE path already accumulates normal equations in time chunks,
+  but the basis itself is still built in one piece for huge nt.
 - Confidence intervals + inference on the GPU path -- low value (CIs are ~1% of
   runtime and the per-constituent loop is scalar-heavy; better left on host).
-- solve_many many-distinct-groups case is loop-bound (small lstsq launches);
-  could batch equal-sized groups if it matters.
 
 This `gpu_work/` dir is scratch (benchmarks/validation), not part of the package.
