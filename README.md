@@ -156,6 +156,28 @@ Runnable scripts: [`examples/gpu_batch_real.py`](examples/gpu_batch_real.py)
 (the 39 real stations above) and
 [`examples/gpu_batch_grid.py`](examples/gpu_batch_grid.py) (the synthetic grid).
 
+# Satellite altimetry
+
+Along-track altimetry is the extreme case for the batched solver: a ground-track
+location is revisited only once per repeat cycle (~9.9 days for Sentinel-6a),
+so each point series carries ~75 irregularly spaced samples over 3.3 years and
+has a NaN pattern of its own — series cannot be grouped by gap pattern. The
+masked normal-equations path (`gappy="ne"`, enabled by default via `gappy="auto"`)
+keeps the whole field in one batched solve:
+
+![UTide harmonic analysis of Sentinel-6a / Jason-3n along-track altimetry over the Sunda Strait](examples/altimetry_utide_demo.png)
+
+*One `solve_many` call fits 12 constituents at 373 along-track locations
+(Sentinel-6a + Jason-3n, 1 Hz, Dec 2022 – Mar 2026) in a fraction of a second on
+an RTX 4060. The signal is `sla_unfiltered + ocean_tide` — the main tide
+correction undone so the tide is back in the observable. The recovered M2 field
+traces the expected regional physics (~5 cm on the Java shelf, ~20 cm in the
+strait, 50+ cm on the Indian-Ocean shelf) and agrees with the FES-based DUACS
+tide model fitted the same way (M2 r = 0.976, rmsd 2.9 cm over 371 points).
+Reproduce with [`examples/altimetry_sunda.py`](examples/altimetry_sunda.py) —
+it downloads the data with the free `copernicusmarine` CLI and runs on CPU or
+GPU.*
+
 # Validation
 
 UTide reproduces NOAA's **official published harmonic constants**. Analysing one
