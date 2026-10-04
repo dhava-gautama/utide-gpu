@@ -156,117 +156,6 @@ Runnable scripts: [`examples/gpu_batch_real.py`](examples/gpu_batch_real.py)
 (the 39 real stations above) and
 [`examples/gpu_batch_grid.py`](examples/gpu_batch_grid.py) (the synthetic grid).
 
-# Satellite altimetry
-
-Along-track altimetry is the extreme case for the batched solver: a ground-track
-location is revisited only once per repeat cycle (~9.9 days for Sentinel-6a),
-so each point series carries ~75 irregularly spaced samples over 3.3 years and
-has a NaN pattern of its own — series cannot be grouped by gap pattern. The
-masked normal-equations path (`gappy="ne"`, enabled by default via `gappy="auto"`)
-keeps the whole field in one batched solve:
-
-![UTide harmonic analysis of Sentinel-6a / Jason-3n along-track altimetry over the Sunda Strait](examples/altimetry_utide_demo.png)
-
-*One `solve_many` call fits 12 constituents at 373 along-track locations
-(Sentinel-6a + Jason-3n, 1 Hz, Dec 2022 – Mar 2026) in a fraction of a second on
-an RTX 4060. The signal is `sla_unfiltered + ocean_tide` — the main tide
-correction undone so the tide is back in the observable. The recovered M2 field
-traces the expected regional physics (~5 cm on the Java shelf, ~20 cm in the
-strait, 50+ cm on the Indian-Ocean shelf) and agrees with the FES-based DUACS
-tide model fitted the same way (M2 r = 0.976, rmsd 2.9 cm over 371 points).
-Reproduce with [`examples/altimetry_sunda.py`](examples/altimetry_sunda.py) —
-it downloads the data with the free `copernicusmarine` CLI and runs on CPU or
-GPU.*
-
-# HF-radar surface currents
-
-Current fields add the vector dimension: one
-`solve_many(t, u, v, gappy="ne")` call fits every grid cell jointly and
-returns current-ellipse parameters (Lsmaj, Lsmin, theta, g) per constituent
-per cell, and `reconstruct_many` predicts the full u/v field from the batch
-result:
-
-![UTide 2-D tidal analysis of a WERA HF-radar surface-current field in the Sunda Strait](examples/wera_ellipses_demo.png)
-
-*The authors' WERA product: 6,566 grid cells x 9 constituents, 131 days of
-half-hourly data (Nov 2025 – Mar 2026) — 1.9 s on an RTX 4060 vs 8.7 s CPU.
-K1 is the dominant constituent in this record (Java-Sea diurnal regime); the
-harmonic fit explains up to 73% of the current variance at well-resolved
-cells. Reproduce with
-[`examples/hfradar_ellipses.py`](examples/hfradar_ellipses.py) on any
-total-current netCDF (`water_u`/`water_v` on time/lat/lon).*
-
-# Geodetic-phase altimetry
-
-CryoSat-2's 369-day geodetic orbit never repeats: ground tracks drift ~15 km
-apart, covering the ocean densely while giving any fixed location only a few
-dozen irregular visits over years — no repeat-track structure to group by.
-One `solve_many(..., gappy="ne")` call fits 8 constituents at 212 0.25° cells
-(~95 irregular samples each over 3.3 years):
-
-![UTide harmonic analysis of geodetic-phase CryoSat-2 altimetry over the Sunda Strait](examples/cryosat2_geodetic_demo.png)
-
-*The fitted M2 field (median 30 cm) tracks the FES-based DUACS tide model
-where FES is reliable (r = 0.69, median |dA| = 3.6 cm) and quantifies its
-error where it is not: near the strait narrows the altimetry fit (1.06 m)
-sides with FES2014 (1.16 m) against TPXO9 (0.2 m). Reproduce with
-[`examples/geodetic_cryosat2.py`](examples/geodetic_cryosat2.py) — downloads
-the data with the free `copernicusmarine` CLI, runs on CPU or GPU.*
-
-# A century of tide-gauge data
-
-The single-record path: `solve(gpu=True)` on ONE long series. The harmonic-
-basis build dominates a long fit and its cost grows with record length, so the
-GPU advantage grows too — a 127-year hourly record (1.09M samples) fits in
-seconds:
-
-![UTide single-series GPU fit of 127 years of hourly tide-gauge data from San Francisco](examples/sanfrancisco_century_demo.png)
-
-*NOAA CO-OPS station 9414290, 1,085,397 hourly samples (1900–2026), 18
-constituents from the annual SA down to 2N2 — 3.8 s on an RTX 4060 vs
-~106 s CPU. The fitted MSL trend (1.96 mm/yr) matches NOAA's published
-1.94 mm/yr, M2 (56 cm) matches the known value, and `method="robust"`
-(GPU IRLS) holds the solution through the March 2011 tsunami. Reproduce with
-[`examples/sanfrancisco_century.py`](examples/sanfrancisco_century.py) —
-downloads the data from the public CO-OPS API, runs on CPU or GPU.*
-
-# Atmospheric tides from ERA5
-
-UTide is not just for oceans: one `solve_many` call fits the solar thermal
-tides (S1, S2) of hourly ERA5 surface pressure at 651 atmospheric grid cells
-over Indonesia — the land-sea heating contrast shows up directly in S1:
-
-![UTide atmospheric-tide analysis of ERA5 surface pressure over Indonesia](examples/era5_atm_tides_demo.png)
-
-*Fitted S1 (median ~1.0 hPa) and S2 (~1.3 hPa) match the classical
-meteorological values. Reproduce with
-[`examples/era5_atm_tides.py`](examples/era5_atm_tides.py) on ERA5 monthly
-netCDFs from the Copernicus Climate Data Store.*
-
-# A whole gauge network in one call
-
-Fifty-six NOAA CO-OPS water-level stations — every one with its own
-deployment history and NaN gap pattern — fitted together in a single
-`solve_many(..., gappy="ne")` call:
-
-![UTide tidal analysis of the NOAA CO-OPS station network](examples/coops_network_demo.png)
-
-*2019–2021 hourly heights, 10 constituents. The largest M2 amplitudes land
-exactly where they should: Newfoundland and the Bay of Fundy (up to
-2.7 m). Reproduce with
-[`examples/coops_network.py`](examples/coops_network.py).*
-
-# Hold-out prediction skill
-
-`solve` analyses, `reconstruct` predicts. Train on 1900–2015 of the San
-Francisco record, predict the fully withheld 2016–2026 decade:
-
-![Hold-out tide prediction skill for San Francisco](examples/sf_prediction_skill_demo.png)
-
-*88,560 never-seen samples predicted in 0.2 s: **R² = 0.971, RMSE = 9.4 cm**
-against a 1-m tidal range. Reproduce with
-[`examples/sf_prediction_skill.py`](examples/sf_prediction_skill.py).*
-
 # Validation
 
 UTide reproduces NOAA's **official published harmonic constants**. Analysing one
@@ -321,3 +210,114 @@ NumPy/SciPy implementation.
 *UTide on a real one-year hourly record: the fitted tide predicts the
 observations (M2 ≈ 0.37 m dominant, 79% of variance explained), and the high/low
 waters give the datums (MHW, MLW, MTR).*
+
+## Satellite altimetry
+
+Along-track altimetry is the extreme case for the batched solver: a ground-track
+location is revisited only once per repeat cycle (~9.9 days for Sentinel-6a),
+so each point series carries ~75 irregularly spaced samples over 3.3 years and
+has a NaN pattern of its own — series cannot be grouped by gap pattern. The
+masked normal-equations path (`gappy="ne"`, enabled by default via `gappy="auto"`)
+keeps the whole field in one batched solve:
+
+![UTide harmonic analysis of Sentinel-6a / Jason-3n along-track altimetry over the Sunda Strait](examples/altimetry_utide_demo.png)
+
+*One `solve_many` call fits 12 constituents at 373 along-track locations
+(Sentinel-6a + Jason-3n, 1 Hz, Dec 2022 – Mar 2026) in a fraction of a second on
+an RTX 4060. The signal is `sla_unfiltered + ocean_tide` — the main tide
+correction undone so the tide is back in the observable. The recovered M2 field
+traces the expected regional physics (~5 cm on the Java shelf, ~20 cm in the
+strait, 50+ cm on the Indian-Ocean shelf) and agrees with the FES-based DUACS
+tide model fitted the same way (M2 r = 0.976, rmsd 2.9 cm over 371 points).
+Reproduce with [`examples/altimetry_sunda.py`](examples/altimetry_sunda.py) —
+it downloads the data with the free `copernicusmarine` CLI and runs on CPU or
+GPU.*
+
+## HF-radar surface currents
+
+Current fields add the vector dimension: one
+`solve_many(t, u, v, gappy="ne")` call fits every grid cell jointly and
+returns current-ellipse parameters (Lsmaj, Lsmin, theta, g) per constituent
+per cell, and `reconstruct_many` predicts the full u/v field from the batch
+result:
+
+![UTide 2-D tidal analysis of a WERA HF-radar surface-current field in the Sunda Strait](examples/wera_ellipses_demo.png)
+
+*The authors' WERA product: 6,566 grid cells x 9 constituents, 131 days of
+half-hourly data (Nov 2025 – Mar 2026) — 1.9 s on an RTX 4060 vs 8.7 s CPU.
+K1 is the dominant constituent in this record (Java-Sea diurnal regime); the
+harmonic fit explains up to 73% of the current variance at well-resolved
+cells. Reproduce with
+[`examples/hfradar_ellipses.py`](examples/hfradar_ellipses.py) on any
+total-current netCDF (`water_u`/`water_v` on time/lat/lon).*
+
+## Geodetic-phase altimetry
+
+CryoSat-2's 369-day geodetic orbit never repeats: ground tracks drift ~15 km
+apart, covering the ocean densely while giving any fixed location only a few
+dozen irregular visits over years — no repeat-track structure to group by.
+One `solve_many(..., gappy="ne")` call fits 8 constituents at 212 0.25° cells
+(~95 irregular samples each over 3.3 years):
+
+![UTide harmonic analysis of geodetic-phase CryoSat-2 altimetry over the Sunda Strait](examples/cryosat2_geodetic_demo.png)
+
+*The fitted M2 field (median 30 cm) tracks the FES-based DUACS tide model
+where FES is reliable (r = 0.69, median |dA| = 3.6 cm) and quantifies its
+error where it is not: near the strait narrows the altimetry fit (1.06 m)
+sides with FES2014 (1.16 m) against TPXO9 (0.2 m). Reproduce with
+[`examples/geodetic_cryosat2.py`](examples/geodetic_cryosat2.py) — downloads
+the data with the free `copernicusmarine` CLI, runs on CPU or GPU.*
+
+## A century of tide-gauge data
+
+The single-record path: `solve(gpu=True)` on ONE long series. The harmonic-
+basis build dominates a long fit and its cost grows with record length, so the
+GPU advantage grows too — a 127-year hourly record (1.09M samples) fits in
+seconds:
+
+![UTide single-series GPU fit of 127 years of hourly tide-gauge data from San Francisco](examples/sanfrancisco_century_demo.png)
+
+*NOAA CO-OPS station 9414290, 1,085,397 hourly samples (1900–2026), 18
+constituents from the annual SA down to 2N2 — 3.8 s on an RTX 4060 vs
+~106 s CPU. The fitted MSL trend (1.96 mm/yr) matches NOAA's published
+1.94 mm/yr, M2 (56 cm) matches the known value, and `method="robust"`
+(GPU IRLS) holds the solution through the March 2011 tsunami. Reproduce with
+[`examples/sanfrancisco_century.py`](examples/sanfrancisco_century.py) —
+downloads the data from the public CO-OPS API, runs on CPU or GPU.*
+
+## Atmospheric tides from ERA5
+
+UTide is not just for oceans: one `solve_many` call fits the solar thermal
+tides (S1, S2) of hourly ERA5 surface pressure at 651 atmospheric grid cells
+over Indonesia — the land-sea heating contrast shows up directly in S1:
+
+![UTide atmospheric-tide analysis of ERA5 surface pressure over Indonesia](examples/era5_atm_tides_demo.png)
+
+*Fitted S1 (median ~1.0 hPa) and S2 (~1.3 hPa) match the classical
+meteorological values. Reproduce with
+[`examples/era5_atm_tides.py`](examples/era5_atm_tides.py) on ERA5 monthly
+netCDFs from the Copernicus Climate Data Store.*
+
+## A whole gauge network in one call
+
+Fifty-six NOAA CO-OPS water-level stations — every one with its own
+deployment history and NaN gap pattern — fitted together in a single
+`solve_many(..., gappy="ne")` call:
+
+![UTide tidal analysis of the NOAA CO-OPS station network](examples/coops_network_demo.png)
+
+*2019–2021 hourly heights, 10 constituents. The largest M2 amplitudes land
+exactly where they should: Newfoundland and the Bay of Fundy (up to
+2.7 m). Reproduce with
+[`examples/coops_network.py`](examples/coops_network.py).*
+
+## Hold-out prediction skill
+
+`solve` analyses, `reconstruct` predicts. Train on 1900–2015 of the San
+Francisco record, predict the fully withheld 2016–2026 decade:
+
+![Hold-out tide prediction skill for San Francisco](examples/sf_prediction_skill_demo.png)
+
+*88,560 never-seen samples predicted in 0.2 s: **R² = 0.971, RMSE = 9.4 cm**
+against a 1-m tidal range. Reproduce with
+[`examples/sf_prediction_skill.py`](examples/sf_prediction_skill.py).*
