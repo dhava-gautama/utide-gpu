@@ -196,6 +196,23 @@ cells. Reproduce with
 [`examples/hfradar_ellipses.py`](examples/hfradar_ellipses.py) on any
 total-current netCDF (`water_u`/`water_v` on time/lat/lon).*
 
+# Geodetic-phase altimetry
+
+CryoSat-2's 369-day geodetic orbit never repeats: ground tracks drift ~15 km
+apart, covering the ocean densely while giving any fixed location only a few
+dozen irregular visits over years — no repeat-track structure to group by.
+One `solve_many(..., gappy="ne")` call fits 8 constituents at 212 0.25° cells
+(~95 irregular samples each over 3.3 years):
+
+![UTide harmonic analysis of geodetic-phase CryoSat-2 altimetry over the Sunda Strait](examples/cryosat2_geodetic_demo.png)
+
+*The fitted M2 field (median 30 cm) tracks the FES-based DUACS tide model
+where FES is reliable (r = 0.69, median |dA| = 3.6 cm) and quantifies its
+error where it is not: near the strait narrows the altimetry fit (1.06 m)
+sides with FES2014 (1.16 m) against TPXO9 (0.2 m). Reproduce with
+[`examples/geodetic_cryosat2.py`](examples/geodetic_cryosat2.py) — downloads
+the data with the free `copernicusmarine` CLI, runs on CPU or GPU.*
+
 # Validation
 
 UTide reproduces NOAA's **official published harmonic constants**. Analysing one
