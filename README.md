@@ -230,6 +230,43 @@ constituents from the annual SA down to 2N2 — 3.8 s on an RTX 4060 vs
 [`examples/sanfrancisco_century.py`](examples/sanfrancisco_century.py) —
 downloads the data from the public CO-OPS API, runs on CPU or GPU.*
 
+# Atmospheric tides from ERA5
+
+UTide is not just for oceans: one `solve_many` call fits the solar thermal
+tides (S1, S2) of hourly ERA5 surface pressure at 651 atmospheric grid cells
+over Indonesia — the land-sea heating contrast shows up directly in S1:
+
+![UTide atmospheric-tide analysis of ERA5 surface pressure over Indonesia](examples/era5_atm_tides_demo.png)
+
+*Fitted S1 (median ~1.0 hPa) and S2 (~1.3 hPa) match the classical
+meteorological values. Reproduce with
+[`examples/era5_atm_tides.py`](examples/era5_atm_tides.py) on ERA5 monthly
+netCDFs from the Copernicus Climate Data Store.*
+
+# A whole gauge network in one call
+
+Fifty-six NOAA CO-OPS water-level stations — every one with its own
+deployment history and NaN gap pattern — fitted together in a single
+`solve_many(..., gappy="ne")` call:
+
+![UTide tidal analysis of the NOAA CO-OPS station network](examples/coops_network_demo.png)
+
+*2019–2021 hourly heights, 10 constituents. The largest M2 amplitudes land
+exactly where they should: Newfoundland and the Bay of Fundy (up to
+2.7 m). Reproduce with
+[`examples/coops_network.py`](examples/coops_network.py).*
+
+# Hold-out prediction skill
+
+`solve` analyses, `reconstruct` predicts. Train on 1900–2015 of the San
+Francisco record, predict the fully withheld 2016–2026 decade:
+
+![Hold-out tide prediction skill for San Francisco](examples/sf_prediction_skill_demo.png)
+
+*88,560 never-seen samples predicted in 0.2 s: **R² = 0.971, RMSE = 9.4 cm**
+against a 1-m tidal range. Reproduce with
+[`examples/sf_prediction_skill.py`](examples/sf_prediction_skill.py).*
+
 # Validation
 
 UTide reproduces NOAA's **official published harmonic constants**. Analysing one
