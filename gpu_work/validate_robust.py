@@ -21,7 +21,13 @@ rng = np.random.default_rng(0)
 idx = rng.choice(len(anom), 40, replace=False)
 anom[idx] += rng.uniform(-5, 5, 40)
 
-kw = dict(lat=-25, method="robust", conf_int="none", epoch="1998-01-01", verbose=False)
+kw = {
+    "lat": -25,
+    "method": "robust",
+    "conf_int": "none",
+    "epoch": "1998-01-01",
+    "verbose": False,
+}
 
 
 def run(label, **extra):

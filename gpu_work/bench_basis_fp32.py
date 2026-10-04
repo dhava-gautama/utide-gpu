@@ -44,7 +44,7 @@ satsel32 = tab.satsel.astype(cp.float32)
 
 
 def FUV_mixed(t, lind, lat, final_fp32_phase):
-    nt = len(t)
+    len(t)
     astro = ut_astron_xp(cp, t, tab)  # FP64 (accurate)
     if abs(lat) < 5:
         lat = np.sign(lat) * 5
@@ -84,7 +84,7 @@ def FUV_mixed(t, lind, lat, final_fp32_phase):
 # constituent set
 import utide
 
-valid = set(n.strip() for n in ut_constants.const.name)
+valid = {n.strip() for n in ut_constants.const.name}
 want = [
     "M2",
     "S2",

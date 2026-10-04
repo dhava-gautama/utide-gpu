@@ -29,7 +29,7 @@ def make_X(S):
     ] + 0.05 * rng.standard_normal((nt, S))
 
 
-kw = dict(lat=-25, epoch="1998-01-01", verbose=False)
+kw = {"lat": -25, "epoch": "1998-01-01", "verbose": False}
 
 print("Chunked vs unchunked correctness (S=500):")
 X = make_X(500)

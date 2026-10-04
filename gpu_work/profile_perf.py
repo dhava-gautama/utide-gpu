@@ -25,7 +25,7 @@ def best(fn, n=3):
 const = ut_constants.const
 names = [n.strip() for n in const.name]
 # pick constituent index lists of different sizes (valid, resolvable)
-allidx = np.array([i for i in range(1, len(names))])  # skip Z0
+allidx = np.array(list(range(1, len(names))))  # skip Z0
 
 print("=== Q1: does ut_E cost scale with #constituents, or always ~146? ===")
 nt = 10 * 365 * 24

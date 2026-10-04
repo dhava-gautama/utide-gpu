@@ -29,10 +29,20 @@ EPOCH = "2000-01-01"
 def synth(nt, S, seed=7):
     rng = np.random.default_rng(seed)
     t = np.arange(nt) / 24.0
-    fr = [1/12.42, 1/12.0, 1/12.66, 1/11.97, 1/23.93, 1/25.82, 1/163.6, 1/438.3]
-    base = sum(np.cos(2*np.pi*f*24*t + i*0.7) for i, f in enumerate(fr))
-    X = (rng.uniform(0.5, 1.5, S)[None, :] * base[:, None]
-         + 0.05 * rng.standard_normal((nt, S)))
+    fr = [
+        1 / 12.42,
+        1 / 12.0,
+        1 / 12.66,
+        1 / 11.97,
+        1 / 23.93,
+        1 / 25.82,
+        1 / 163.6,
+        1 / 438.3,
+    ]
+    base = sum(np.cos(2 * np.pi * f * 24 * t + i * 0.7) for i, f in enumerate(fr))
+    X = rng.uniform(0.5, 1.5, S)[None, :] * base[:, None] + 0.05 * rng.standard_normal(
+        (nt, S),
+    )
     return t, X
 
 
@@ -40,6 +50,7 @@ def cleanup():
     gc.collect()
     try:
         import cupy
+
         cupy.get_default_memory_pool().free_all_blocks()
     except Exception:
         pass
@@ -56,6 +67,7 @@ def main():
     try:
         import cupy  # noqa: F401
         import cupy.cuda.runtime as _rt
+
         _rt.getDeviceCount()
         gpu = not args.cpu
     except Exception:
@@ -63,24 +75,39 @@ def main():
     from utide import solve, solve_many
 
     def fit1(t, h, gpu_):
-        return solve(t, h, lat=37.8, constit=CONSTS, trend=True, nodal=True,
-                     epoch=EPOCH, conf_int="none", gpu=gpu_,
-                     gpu_precision="single", verbose=False)
+        return solve(
+            t,
+            h,
+            lat=37.8,
+            constit=CONSTS,
+            trend=True,
+            nodal=True,
+            epoch=EPOCH,
+            conf_int="none",
+            gpu=gpu_,
+            gpu_precision="single",
+            verbose=False,
+        )
 
     # ---- A. solve() vs record length ----
     rec_len, rec_cpu, rec_gpu = [], [], []
     for L in [1, 2, 5, 10, 25, 50, 100, 126]:
         t, X = synth(int(8766 * L), 1)
-        t0 = time.perf_counter(); fit1(t, X[:, 0], False)
+        t0 = time.perf_counter()
+        fit1(t, X[:, 0], False)
         rec_cpu.append(time.perf_counter() - t0)
         cleanup()
         if gpu:
-            t0 = time.perf_counter(); fit1(t, X[:, 0], True)
+            t0 = time.perf_counter()
+            fit1(t, X[:, 0], True)
             rec_gpu.append(time.perf_counter() - t0)
             cleanup()
         rec_len.append(L)
-        print(f"[solve] {L:4d} yr: cpu {rec_cpu[-1]:7.2f}s  "
-              f"gpu {rec_gpu[-1] if rec_gpu else float('nan'):6.2f}s", flush=True)
+        print(
+            f"[solve] {L:4d} yr: cpu {rec_cpu[-1]:7.2f}s  "
+            f"gpu {rec_gpu[-1] if rec_gpu else float('nan'):6.2f}s",
+            flush=True,
+        )
         del X
 
     # ---- B. solve_many vs number of series ----
@@ -91,20 +118,50 @@ def main():
     for S in S_LIST:
         t, X = synth(8766, S)
         t0 = time.perf_counter()
-        solve_many(t, X, gpu=False, gappy="ne", constit=CONSTS, trend=True,
-                   nodal=True, epoch=EPOCH, lat=37.8, verbose=False)
+        solve_many(
+            t,
+            X,
+            gpu=False,
+            gappy="ne",
+            constit=CONSTS,
+            trend=True,
+            nodal=True,
+            epoch=EPOCH,
+            lat=37.8,
+            verbose=False,
+        )
         sm["cpu"].append(time.perf_counter() - t0)
         cleanup()
         if gpu:
             t0 = time.perf_counter()
-            solve_many(t, X, gpu=True, gappy="ne", constit=CONSTS, trend=True,
-                       nodal=True, epoch=EPOCH, lat=37.8, verbose=False)
+            solve_many(
+                t,
+                X,
+                gpu=True,
+                gappy="ne",
+                constit=CONSTS,
+                trend=True,
+                nodal=True,
+                epoch=EPOCH,
+                lat=37.8,
+                verbose=False,
+            )
             sm["gpu64"].append(time.perf_counter() - t0)
             cleanup()
             t0 = time.perf_counter()
-            solve_many(t, X, gpu=True, gappy="ne", gpu_precision="single",
-                       constit=CONSTS, trend=True, nodal=True, epoch=EPOCH,
-                       lat=37.8, verbose=False)
+            solve_many(
+                t,
+                X,
+                gpu=True,
+                gappy="ne",
+                gpu_precision="single",
+                constit=CONSTS,
+                trend=True,
+                nodal=True,
+                epoch=EPOCH,
+                lat=37.8,
+                verbose=False,
+            )
             sm["gpu32"].append(time.perf_counter() - t0)
             cleanup()
         else:
@@ -119,14 +176,18 @@ def main():
         else:
             sm["loop"].append(np.nan)
         sm["S"].append(S)
-        print(f"[solve_many] S={S:5d}: cpu {sm['cpu'][-1]:6.2f}s  "
-              f"gpu64 {sm['gpu64'][-1]:6.2f}s  gpu32 {sm['gpu32'][-1]:6.2f}s  "
-              f"loop {sm['loop'][-1]:7.2f}s", flush=True)
+        print(
+            f"[solve_many] S={S:5d}: cpu {sm['cpu'][-1]:6.2f}s  "
+            f"gpu64 {sm['gpu64'][-1]:6.2f}s  gpu32 {sm['gpu32'][-1]:6.2f}s  "
+            f"loop {sm['loop'][-1]:7.2f}s",
+            flush=True,
+        )
         del X
         cleanup()
 
     # ---- figure ----
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
@@ -135,16 +196,23 @@ def main():
     axA.plot(rec_len, rec_cpu, "o-", label="CPU (FP64)")
     if gpu:
         axA.plot(rec_len, rec_gpu, "s-", label="GPU (FP32)")
-        for x_, yc, yg in zip(rec_len, rec_cpu, rec_gpu):
+        for x_, yc, yg in zip(rec_len, rec_cpu, rec_gpu, strict=False):
             if x_ in (25, 100, 126):
-                axA.annotate(f"x{yc/yg:.0f}", (x_, yc), textcoords="offset points",
-                             xytext=(4, 5), fontsize=8)
-    axC = axA
+                axA.annotate(
+                    f"x{yc/yg:.0f}",
+                    (x_, yc),
+                    textcoords="offset points",
+                    xytext=(4, 5),
+                    fontsize=8,
+                )
     axA.set_xlabel("record length [yr] (hourly)")
     axA.set_ylabel("solve() wall time [s]")
     axA.set_yscale("log")
-    axA.set_title("A | single series: solve() time vs record length\n"
-                  "basis build dominates and grows with length", fontsize=10)
+    axA.set_title(
+        "A | single series: solve() time vs record length\n"
+        "basis build dominates and grows with length",
+        fontsize=10,
+    )
     axA.legend(fontsize=8)
 
     axB = fig.add_subplot(1, 2, 2)
@@ -157,8 +225,11 @@ def main():
     axB.set_ylabel("solve_many wall time [s]")
     axB.set_xscale("log")
     axB.set_yscale("log")
-    axB.set_title("B | batched field: solve_many vs series count\n"
-                  "series stream through the GPU in chunks", fontsize=10)
+    axB.set_title(
+        "B | batched field: solve_many vs series count\n"
+        "series stream through the GPU in chunks",
+        fontsize=10,
+    )
     axB.legend(fontsize=8)
     fig.savefig(args.out, dpi=130, bbox_inches="tight")
     print(f"[figure] wrote {args.out}", flush=True)

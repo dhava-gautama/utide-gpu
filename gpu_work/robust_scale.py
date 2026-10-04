@@ -9,7 +9,7 @@ import numpy as np
 warnings.filterwarnings("ignore")
 import utide
 
-valid = set(n.strip() for n in utide._ut_constants.ut_constants.const.name)
+valid = {n.strip() for n in utide._ut_constants.ut_constants.const.name}
 want = [
     "M2",
     "S2",
@@ -41,14 +41,14 @@ def mk(nt):
     return t, u
 
 
-kw = dict(
-    lat=45,
-    constit=constit,
-    method="robust",
-    conf_int="none",
-    epoch="2000-01-01",
-    verbose=False,
-)
+kw = {
+    "lat": 45,
+    "constit": constit,
+    "method": "robust",
+    "conf_int": "none",
+    "epoch": "2000-01-01",
+    "verbose": False,
+}
 print("Robust IRLS scaling: CPU vs GPU-single")
 print(
     f"{'nt':>8} {'yr':>4} {'CPU(ms)':>9} {'GPU-s(ms)':>10} {'speedup':>8} {'iters':>6}",

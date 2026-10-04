@@ -38,7 +38,7 @@ def bench(fn, n=5, gpu=False):
     return best
 
 
-valid = set(n.strip() for n in utide._ut_constants.ut_constants.const.name)
+valid = {n.strip() for n in utide._ut_constants.ut_constants.const.name}
 want = [
     "M2",
     "S2",

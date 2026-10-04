@@ -68,7 +68,7 @@ def ut_astron_xp(xp, jd, tab):
 def FUV_xp(xp, t, tref, lind, lat, tab):
     """Faithful port of harmonics.FUV for the default ngflgs=[0,0,0,0] path."""
     t = xp.atleast_1d(t).ravel()
-    nt = len(t)
+    len(t)
 
     # ---- nodsat correction ----
     astro = ut_astron_xp(xp, t, tab)
@@ -83,7 +83,7 @@ def FUV_xp(xp, t, tref, lind, lat, tab):
     uu = xp.fmod(uu, 1)
     mat = rr[:, None] * xp.exp(1j * 2 * np.pi * uu)  # (nsat, nt) complex
 
-    nfreq = const.isat.shape[0]  # 146
+    const.isat.shape[0]  # 146
     # segment-sum of satellite contributions per constituent, as a single
     # selection-matrix multiply (works for complex on numpy and cupy):
     #   F[ii] = 1 + sum_{s: iconst[s]==ii} mat[s]
@@ -92,7 +92,7 @@ def FUV_xp(xp, t, tref, lind, lat, tab):
     U = xp.angle(F) / (2 * np.pi)
     F = xp.abs(F)
 
-    for i0, nshal, k in zip(tab.ishallow, tab.nshallow, tab.kshallow):
+    for i0, nshal, k in zip(tab.ishallow, tab.nshallow, tab.kshallow, strict=False):
         ik = slice(i0, i0 + nshal)
         j = xp.asarray(shallow.iname[ik] - 1)
         exp1 = xp.asarray(shallow.coef[ik])[:, None]
@@ -108,7 +108,7 @@ def FUV_xp(xp, t, tref, lind, lat, tab):
     astro = ut_astron_xp(xp, t, tab)
     V = tab.doodson @ astro + tab.semi[:, None]  # (146, nt)
     V = xp.fmod(V, 1)
-    for i0, nshal, k in zip(tab.ishallow, tab.nshallow, tab.kshallow):
+    for i0, nshal, k in zip(tab.ishallow, tab.nshallow, tab.kshallow, strict=False):
         ik = slice(i0, i0 + nshal)
         j = xp.asarray(shallow.iname[ik] - 1)
         exp1 = xp.asarray(shallow.coef[ik])[:, None]

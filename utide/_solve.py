@@ -47,6 +47,7 @@ def _basis_cache_put(key, B):
             del _BASIS_CACHE[k]
             total -= s
 
+
 default_opts = {
     "constit": "auto",
     "order_constit": None,
@@ -547,7 +548,9 @@ def solve_many(
                 Bc = B[i : i + tchunk]
                 outer = Bc[:, :, None].conj() * Bc[:, None, :]  # (tc, nm, nm)
                 N += (Wt[:, i : i + tchunk] @ outer.reshape(-1, nm * nm)).reshape(
-                    len(cols), nm, nm
+                    len(cols),
+                    nm,
+                    nm,
                 )
             try:
                 sol = xp.linalg.solve(N, xp.swapaxes(rhs, 0, 1)[:, :, None])

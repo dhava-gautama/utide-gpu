@@ -12,7 +12,7 @@ from utide.harmonics import ut_E
 
 print("utide:", utide.__file__)
 
-valid = set(n.strip() for n in utide._ut_constants.ut_constants.const.name)
+valid = {n.strip() for n in utide._ut_constants.ut_constants.const.name}
 want = [
     "M2",
     "S2",

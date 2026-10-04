@@ -44,56 +44,84 @@ def main():
     order = np.argsort(lat0)
     msl = msl[:, order, :]
     lat0, lon0 = lat0[order], lon0
-    print(f"[prep] {len(files)} files, {len(t)} hourly steps, grid {msl.shape[1]}x{msl.shape[2]}")
+    print(
+        f"[prep] {len(files)} files, {len(t)} hourly steps, grid {msl.shape[1]}x{msl.shape[2]}",
+    )
 
     lat, lon = lat0[::2], lon0[::2]  # demo subsampling, 0.5 deg
     X = (msl[:, ::2, ::2] / 100.0).astype(np.float32)  # Pa -> hPa
     nt = X.shape[0]
-    t_days = ((t.astype("datetime64[s]") - EPOCH) / np.timedelta64(1, "D")).astype(float)
+    t_days = ((t.astype("datetime64[s]") - EPOCH) / np.timedelta64(1, "D")).astype(
+        float,
+    )
 
     try:
         import cupy  # noqa: F401
         import cupy.cuda.runtime as _rt
+
         _rt.getDeviceCount()
         gpu = not args.cpu
     except Exception:
         gpu = False
     from utide import solve_many
 
-    kw = dict(constit=CONSTS, trend=True, nodal=True, epoch=EPOCH,
-              lat=np.broadcast_to(lat[:, None], (len(lat), len(lon))).ravel(),
-              verbose=False)
+    kw = {
+        "constit": CONSTS,
+        "trend": True,
+        "nodal": True,
+        "epoch": EPOCH,
+        "lat": np.broadcast_to(lat[:, None], (len(lat), len(lon))).ravel(),
+        "verbose": False,
+    }
     t0 = time.perf_counter()
     coef = solve_many(t_days, X.reshape(nt, -1), gpu=gpu, gappy="ne", **kw)
-    print(f"[fit] {coef.A.shape[1]} cells x {len(CONSTS)} constituents "
-          f"in {time.perf_counter() - t0:.2f}s ({'gpu' if gpu else 'cpu'})")
+    print(
+        f"[fit] {coef.A.shape[1]} cells x {len(CONSTS)} constituents "
+        f"in {time.perf_counter() - t0:.2f}s ({'gpu' if gpu else 'cpu'})",
+    )
 
     names = list(coef.name)
     iS1, iS2 = names.index("S1"), names.index("S2")
-    print(f"[science] S1 median {np.nanmedian(coef.A[iS1]):.3f} hPa | "
-          f"S2 median {np.nanmedian(coef.A[iS2]):.3f} hPa "
-          "(classical values ~1.2 and ~1.1 hPa near the equator)")
+    print(
+        f"[science] S1 median {np.nanmedian(coef.A[iS1]):.3f} hPa | "
+        f"S2 median {np.nanmedian(coef.A[iS2]):.3f} hPa "
+        "(classical values ~1.2 and ~1.1 hPa near the equator)",
+    )
 
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+
     try:
         import cartopy.crs as ccrs
         import cartopy.feature as cfeature
+
         HAVE_CARTOPY = True
     except ImportError:
         HAVE_CARTOPY = False
     LAT, LON = np.meshgrid(lat, lon, indexing="ij")
 
     fig = plt.figure(figsize=(13.0, 5.2))
-    for k, (ii, ttl) in enumerate([(iS1, "S1 (diurnal, solar thermal)"),
-                                   (iS2, "S2 (semidiurnal, solar)")]):
+    for k, (ii, ttl) in enumerate(
+        [(iS1, "S1 (diurnal, solar thermal)"), (iS2, "S2 (semidiurnal, solar)")],
+    ):
         if HAVE_CARTOPY:
             ax = fig.add_subplot(1, 2, k + 1, projection=ccrs.PlateCarree())
-            ax.set_extent([LON.min() - 0.5, LON.max() + 0.5,
-                           LAT.min() - 0.5, LAT.max() + 0.5], ccrs.PlateCarree())
-            ax.add_feature(cfeature.LAND.with_scale("50m"), facecolor="#efe8d8", zorder=0)
-            ax.add_feature(cfeature.OCEAN.with_scale("50m"), facecolor="#d6e8f5", zorder=0)
+            ax.set_extent(
+                [LON.min() - 0.5, LON.max() + 0.5, LAT.min() - 0.5, LAT.max() + 0.5],
+                ccrs.PlateCarree(),
+            )
+            ax.add_feature(
+                cfeature.LAND.with_scale("50m"),
+                facecolor="#efe8d8",
+                zorder=0,
+            )
+            ax.add_feature(
+                cfeature.OCEAN.with_scale("50m"),
+                facecolor="#d6e8f5",
+                zorder=0,
+            )
             ax.coastlines(resolution="50m", linewidth=0.5, zorder=2)
             transform = ccrs.PlateCarree()
         else:
@@ -101,11 +129,22 @@ def main():
             transform = None
         a = coef.A[ii]
         fi = np.isfinite(a)
-        sc = ax.scatter(LON.ravel()[fi], LAT.ravel()[fi], c=a[fi], s=14,
-                        cmap="magma", transform=transform, zorder=5, vmin=0)
+        sc = ax.scatter(
+            LON.ravel()[fi],
+            LAT.ravel()[fi],
+            c=a[fi],
+            s=14,
+            cmap="magma",
+            transform=transform,
+            zorder=5,
+            vmin=0,
+        )
         plt.colorbar(sc, ax=ax, label="amplitude [hPa]", shrink=0.8, pad=0.02)
-        ax.set_title(f"{'AB'[k]} | ERA5 surface-pressure {ttl}\n"
-                     f"{int(fi.sum())} cells, one solve_many call", fontsize=10)
+        ax.set_title(
+            f"{'AB'[k]} | ERA5 surface-pressure {ttl}\n"
+            f"{int(fi.sum())} cells, one solve_many call",
+            fontsize=10,
+        )
     fig.savefig(args.out, dpi=130, bbox_inches="tight")
     print(f"[figure] wrote {args.out}")
 

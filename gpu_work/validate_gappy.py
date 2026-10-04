@@ -9,7 +9,7 @@ import numpy as np
 warnings.filterwarnings("ignore")
 import utide
 
-valid = set(n.strip() for n in utide._ut_constants.ut_constants.const.name)
+valid = {n.strip() for n in utide._ut_constants.ut_constants.const.name}
 want = ["M2", "S2", "N2", "K2", "K1", "O1", "P1", "Q1", "M4", "M6", "MM", "MF"]
 constit = [c for c in want if c in valid]
 rng = np.random.default_rng(0)
@@ -36,7 +36,7 @@ def make_X(S, gap_frac=0.15):
     return X
 
 
-kw = dict(lat=45, constit=constit, epoch="2000-01-01", verbose=False)
+kw = {"lat": 45, "constit": constit, "epoch": "2000-01-01", "verbose": False}
 
 print("VALIDATE gappy solve_many vs per-station solve (different gaps each)")
 X = make_X(6)

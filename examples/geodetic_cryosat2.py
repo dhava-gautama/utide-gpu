@@ -31,10 +31,10 @@ import numpy as np
 import pandas as pd
 
 DATASET = "cmems_obs-sl_glo_phy-ssh_my_c2n-l3-duacs_PT1S"
-BOX = dict(x0=103.5, x1=108.5, y0=-8.5, y1=-4.0)
-MARGIN = 0.25           # deg trimmed from the box before binning
+BOX = {"x0": 103.5, "x1": 108.5, "y0": -8.5, "y1": -4.0}
+MARGIN = 0.25  # deg trimmed from the box before binning
 T0, T1 = "2022-12-01T00:00:00", "2026-03-25T00:00:00"
-BIN = 0.25              # deg; geodetic tracks do not repeat
+BIN = 0.25  # deg; geodetic tracks do not repeat
 MIN_OBS = 30
 CONSTS = ["M2", "S2", "N2", "K2", "K1", "O1", "P1", "Q1"]
 EPOCH = np.datetime64("2000-01-01T00:00:00")
@@ -45,10 +45,27 @@ def download(data_dir):
     if glob.glob(os.path.join(data_dir, "*", "*.csv")):
         print("[download] CSVs found, skipping")
         return
-    cmd = ["copernicusmarine", "subset", "-i", DATASET,
-           "-o", os.path.join(data_dir, "c2n"), "--force-download",
-           "-x", str(BOX["x0"]), "-X", str(BOX["x1"]),
-           "-y", str(BOX["y0"]), "-Y", str(BOX["y1"]), "-t", T0, "-T", T1]
+    cmd = [
+        "copernicusmarine",
+        "subset",
+        "-i",
+        DATASET,
+        "-o",
+        os.path.join(data_dir, "c2n"),
+        "--force-download",
+        "-x",
+        str(BOX["x0"]),
+        "-X",
+        str(BOX["x1"]),
+        "-y",
+        str(BOX["y0"]),
+        "-Y",
+        str(BOX["y1"]),
+        "-t",
+        T0,
+        "-T",
+        T1,
+    ]
     print("[download]", " ".join(cmd))
     subprocess.run(cmd, check=True)
 
@@ -57,16 +74,24 @@ def build_series(data_dir):
     frames = [pd.read_csv(f) for f in glob.glob(os.path.join(data_dir, "*", "*.csv"))]
     df = pd.concat(frames, ignore_index=True)
     df = df[~df.value_qc.isin([4, 9])]
-    piv = df.pivot_table(index=["time", "longitude", "latitude"], columns="variable",
-                         values="value", aggfunc="first").reset_index()
+    piv = df.pivot_table(
+        index=["time", "longitude", "latitude"],
+        columns="variable",
+        values="value",
+        aggfunc="first",
+    ).reset_index()
     piv["time"] = pd.to_datetime(piv.time).dt.tz_localize(None)
     piv = piv.dropna(subset=["sla_unfiltered", "ocean_tide"])
     piv["y_obs"] = piv.sla_unfiltered + piv.ocean_tide
     piv["y_mod"] = piv.ocean_tide
     lon_lo, lon_hi = BOX["x0"] + MARGIN, BOX["x1"] - MARGIN
     lat_lo, lat_hi = BOX["y0"] + MARGIN, BOX["y1"] - MARGIN
-    piv = piv[(piv.longitude >= lon_lo) & (piv.longitude <= lon_hi)
-              & (piv.latitude >= lat_lo) & (piv.latitude <= lat_hi)]
+    piv = piv[
+        (piv.longitude >= lon_lo)
+        & (piv.longitude <= lon_hi)
+        & (piv.latitude >= lat_lo)
+        & (piv.latitude <= lat_hi)
+    ]
 
     piv["ilon"] = np.round(piv.longitude / BIN).astype(int)
     piv["ilat"] = np.round(piv.latitude / BIN).astype(int)
@@ -105,33 +130,47 @@ def main():
 
     try:
         import cupy  # noqa: F401
+
         gpu = not args.cpu
     except ImportError:
         gpu = False
     from utide import solve_many
 
-    kw = dict(constit=CONSTS, trend=True, nodal=True, epoch="2000-01-01",
-              lat=lat, verbose=False)
+    kw = {
+        "constit": CONSTS,
+        "trend": True,
+        "nodal": True,
+        "epoch": "2000-01-01",
+        "lat": lat,
+        "verbose": False,
+    }
     t0 = time.perf_counter()
     coef = solve_many(t, Xobs, gpu=gpu, gappy="ne", **kw)
     coef_mod = solve_many(t, Xmod, gpu=gpu, gappy="ne", **kw)
-    print(f"[fit] {coef.A.shape[1]} bins x {len(CONSTS)} constituents "
-          f"in {time.perf_counter() - t0:.2f} s ({'gpu' if gpu else 'cpu'})")
+    print(
+        f"[fit] {coef.A.shape[1]} bins x {len(CONSTS)} constituents "
+        f"in {time.perf_counter() - t0:.2f} s ({'gpu' if gpu else 'cpu'})",
+    )
 
     names = list(coef.name)
     m2 = names.index("M2")
     fin = np.isfinite(coef.A[m2]) & np.isfinite(coef_mod.A[m2])
     r = np.corrcoef(coef.A[m2][fin], coef_mod.A[m2][fin])[0, 1]
     med = np.median(np.abs(coef.A[m2][fin] - coef_mod.A[m2][fin])) * 100
-    print(f"[validation] M2 vs FES-based model: r={r:.3f}, median |dA|={med:.1f} cm "
-          f"over {int(fin.sum())} bins (differences quantify FES2014 error)")
+    print(
+        f"[validation] M2 vs FES-based model: r={r:.3f}, median |dA|={med:.1f} cm "
+        f"over {int(fin.sum())} bins (differences quantify FES2014 error)",
+    )
 
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+
     try:
         import cartopy.crs as ccrs
         import cartopy.feature as cfeature
+
         HAVE_CARTOPY = True
     except ImportError:
         HAVE_CARTOPY = False
@@ -151,21 +190,35 @@ def main():
         axA = fig.add_subplot(gs[0, 0])
         axA.set_xlim(extent[:2])
         axA.set_ylim(extent[2:])
-    sc = axA.scatter(lon, lat, c=coef.A[m2] * 100, s=14, cmap="viridis", vmin=0,
-                     vmax=max(60, np.nanpercentile(coef.A[m2][fin], 99)),
-                     edgecolors="k", linewidths=0.2, transform=transform, zorder=5)
+    sc = axA.scatter(
+        lon,
+        lat,
+        c=coef.A[m2] * 100,
+        s=14,
+        cmap="viridis",
+        vmin=0,
+        vmax=max(60, np.nanpercentile(coef.A[m2][fin], 99)),
+        edgecolors="k",
+        linewidths=0.2,
+        transform=transform,
+        zorder=5,
+    )
     plt.colorbar(sc, ax=axA, label="fitted M2 amplitude (cm)", shrink=0.8, pad=0.02)
-    axA.set_title("A | CryoSat-2 geodetic-phase M2 (2022-12 – 2026-03)\n"
-                  f"{coef.A.shape[1]} bins — one solve_many(gappy='ne') call",
-                  fontsize=10)
+    axA.set_title(
+        "A | CryoSat-2 geodetic-phase M2 (2022-12 – 2026-03)\n"
+        f"{coef.A.shape[1]} bins — one solve_many(gappy='ne') call",
+        fontsize=10,
+    )
     axB = fig.add_subplot(gs[0, 1])
     lims = [0, max(coef.A[m2][fin].max(), coef_mod.A[m2][fin].max()) * 110]
     axB.plot(lims, lims, "k--", lw=0.8)
     axB.scatter(coef_mod.A[m2][fin] * 100, coef.A[m2][fin] * 100, s=12, alpha=0.65)
     axB.set_xlabel("FES-based model M2 amp [cm]")
     axB.set_ylabel("CryoSat-2-fitted M2 amp [cm]")
-    axB.set_title(f"B | per-bin M2: fit vs FES model\nr={r:.3f}, median |dA|={med:.1f} cm",
-                  fontsize=10)
+    axB.set_title(
+        f"B | per-bin M2: fit vs FES model\nr={r:.3f}, median |dA|={med:.1f} cm",
+        fontsize=10,
+    )
     fig.savefig(args.out, dpi=130, bbox_inches="tight")
     print(f"[figure] wrote {args.out}")
 

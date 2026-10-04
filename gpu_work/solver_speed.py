@@ -17,7 +17,7 @@ e[np.abs(e - 9.990) < 1e-6] = np.nan
 base = np.nan_to_num(e - np.nanmean(e), nan=0.0)
 nt = len(t)
 rng = np.random.default_rng(0)
-kw = dict(lat=-25, epoch="1998-01-01", verbose=False)
+kw = {"lat": -25, "epoch": "1998-01-01", "verbose": False}
 print("solve_many double precision: solver='auto'(normal-eq) vs 'lstsq'")
 for S in [1000, 5000, 20000]:
     X = rng.uniform(0.5, 1.5, S)[None, :] * base[:, None] + 0.05 * rng.standard_normal(

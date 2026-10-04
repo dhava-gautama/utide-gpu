@@ -21,7 +21,13 @@ nt = len(t)
 print("=" * 66)
 print("FP32 vs FP64 GPU solve  (single series, real data)")
 print("=" * 66)
-kw = dict(lat=-25, method="ols", conf_int="linear", epoch="1998-01-01", verbose=False)
+kw = {
+    "lat": -25,
+    "method": "ols",
+    "conf_int": "linear",
+    "epoch": "1998-01-01",
+    "verbose": False,
+}
 cpu = utide.solve(t, anom, **kw)
 d = utide.solve(t, anom, gpu=True, gpu_precision="double", **kw)
 s = utide.solve(t, anom, gpu=True, gpu_precision="single", **kw)

@@ -31,8 +31,11 @@ EPOCH = np.datetime64("2000-01-01T00:00:00")
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--nc", required=True,
-                    help="total-current netCDF with time/lat/lon + water_u/water_v")
+    ap.add_argument(
+        "--nc",
+        required=True,
+        help="total-current netCDF with time/lat/lon + water_u/water_v",
+    )
     ap.add_argument("--out", default="hfradar_ellipses.png")
     ap.add_argument("--min-obs", type=int, default=400)
     ap.add_argument("--cpu", action="store_true")
@@ -52,40 +55,57 @@ def main():
     XU = np.where(obs[:, ii, jj], U[:, ii, jj], np.nan)
     XV = np.where(obs[:, ii, jj], V[:, ii, jj], np.nan)
     lat, lon = ds.lat.values[ii], ds.lon.values[jj]
-    print(f"[prep] {len(t)} times, {len(ii)} cells, "
-          f"finite={np.isfinite(XU).mean():.2f}")
+    print(
+        f"[prep] {len(t)} times, {len(ii)} cells, "
+        f"finite={np.isfinite(XU).mean():.2f}",
+    )
 
     try:
         import cupy  # noqa: F401
+
         gpu = not args.cpu
     except ImportError:
         gpu = False
-    from utide import solve_many, reconstruct_many
+    from utide import reconstruct_many, solve_many
 
-    kw = dict(constit=CONSTS, trend=False, nodal=True, epoch="2000-01-01",
-              lat=lat, verbose=False)
+    kw = {
+        "constit": CONSTS,
+        "trend": False,
+        "nodal": True,
+        "epoch": "2000-01-01",
+        "lat": lat,
+        "verbose": False,
+    }
     import time as _time
+
     t0 = _time.perf_counter()
     coef = solve_many(t, XU, XV, gpu=gpu, gappy="ne", **kw)
-    print(f"[fit] 2-D ellipse fit, {coef.Lsmaj.shape[1]} cells x {len(CONSTS)} "
-          f"constituents in {_time.perf_counter() - t0:.2f} s "
-          f"({'gpu' if gpu else 'cpu'})")
+    print(
+        f"[fit] 2-D ellipse fit, {coef.Lsmaj.shape[1]} cells x {len(CONSTS)} "
+        f"constituents in {_time.perf_counter() - t0:.2f} s "
+        f"({'gpu' if gpu else 'cpu'})",
+    )
     pred = reconstruct_many(t, coef, epoch="2000-01-01", gpu=gpu)
 
     # tide-explained variance per cell
-    var_exp = 1 - (np.nanstd(XU - pred.u, axis=0) ** 2
-                   + np.nanstd(XV - pred.v, axis=0) ** 2) \
-                / (np.nanvar(XU, axis=0) + np.nanvar(XV, axis=0))
+    var_exp = 1 - (
+        np.nanstd(XU - pred.u, axis=0) ** 2 + np.nanstd(XV - pred.v, axis=0) ** 2
+    ) / (np.nanvar(XU, axis=0) + np.nanvar(XV, axis=0))
     i0 = int(np.nanargmax(var_exp))
-    print(f"[reconstruct] best cell ({lat[i0]:.3f}N, {lon[i0]:.3f}E): "
-          f"tide explains {var_exp[i0] * 100:.0f}% of variance")
+    print(
+        f"[reconstruct] best cell ({lat[i0]:.3f}N, {lon[i0]:.3f}E): "
+        f"tide explains {var_exp[i0] * 100:.0f}% of variance",
+    )
 
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+
     try:
         import cartopy.crs as ccrs
         import cartopy.feature as cfeature
+
         HAVE_CARTOPY = True
     except ImportError:
         HAVE_CARTOPY = False
@@ -109,26 +129,45 @@ def main():
         ax.set_ylim(extent[2:])
     a = coef.Lsmaj[iK1] * 100
     fi = np.isfinite(a)
-    sc = ax.scatter(lon[fi], lat[fi], c=a[fi], s=5, cmap="viridis", vmin=0,
-                    vmax=max(25, np.nanpercentile(a[fi], 99)),
-                    transform=transform, zorder=5)
+    sc = ax.scatter(
+        lon[fi],
+        lat[fi],
+        c=a[fi],
+        s=5,
+        cmap="viridis",
+        vmin=0,
+        vmax=max(25, np.nanpercentile(a[fi], 99)),
+        transform=transform,
+        zorder=5,
+    )
     plt.colorbar(sc, ax=ax, label="K1 Lsmaj (cm/s)", shrink=0.8, pad=0.02)
-    ax.set_title(f"K1 semi-major axis at {int(fi.sum())} cells "
-                 f"(one 2-D solve_many call)", fontsize=10)
+    ax.set_title(
+        f"K1 semi-major axis at {int(fi.sum())} cells " f"(one 2-D solve_many call)",
+        fontsize=10,
+    )
 
     axD = fig.add_subplot(gs[0, 1])
     m = np.isfinite(XU[:, i0])
     w = t <= t[0] + 40
     axD.plot(t[w] - t[0], pred.u[w, i0] * 100, "b-", lw=1.1, label="UTide u (pred)")
-    axD.plot(t[w] - t[0], pred.v[w, i0] * 100, "-", color="tab:orange", lw=1.1,
-             label="UTide v (pred)")
+    axD.plot(
+        t[w] - t[0],
+        pred.v[w, i0] * 100,
+        "-",
+        color="tab:orange",
+        lw=1.1,
+        label="UTide v (pred)",
+    )
     wm = w & m
     axD.plot(t[wm] - t[0], XU[wm, i0] * 100, "k.", ms=3, label="obs u")
     axD.plot(t[wm] - t[0], XV[wm, i0] * 100, ".", color="gray", ms=3, label="obs v")
     axD.set_xlabel(f"days since {str(t64[0])[:10]}")
     axD.set_ylabel("current [cm/s]")
-    axD.set_title(f"Reconstruction at best cell ({lat[i0]:.3f}N, {lon[i0]:.3f}E): "
-                  f"{var_exp[i0] * 100:.0f}% variance explained", fontsize=10)
+    axD.set_title(
+        f"Reconstruction at best cell ({lat[i0]:.3f}N, {lon[i0]:.3f}E): "
+        f"{var_exp[i0] * 100:.0f}% variance explained",
+        fontsize=10,
+    )
     axD.legend(fontsize=7)
     fig.savefig(args.out, dpi=130, bbox_inches="tight")
     print(f"[figure] wrote {args.out}")

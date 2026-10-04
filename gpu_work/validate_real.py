@@ -16,7 +16,13 @@ elev[np.abs(elev - 9.990) < 1e-6] = np.nan  # missing sentinel
 t = seconds / 86400.0  # days since 1998-01-01
 anom = elev - np.nanmean(elev)
 
-kw = dict(lat=-25, method="ols", conf_int="linear", epoch="1998-01-01", verbose=False)
+kw = {
+    "lat": -25,
+    "method": "ols",
+    "conf_int": "linear",
+    "epoch": "1998-01-01",
+    "verbose": False,
+}
 print("Real tidal record (can1998, hourly, 1 yr), auto constituents")
 c0 = utide.solve(t, anom, **kw)
 c1 = utide.solve(t, anom, gpu=True, **kw)

@@ -9,7 +9,7 @@ import numpy as np
 warnings.filterwarnings("ignore")
 import utide
 
-valid = set(n.strip() for n in utide._ut_constants.ut_constants.const.name)
+valid = {n.strip() for n in utide._ut_constants.ut_constants.const.name}
 # well-separated, full-rank over a multi-year record
 want = [
     "M2",
