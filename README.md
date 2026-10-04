@@ -117,6 +117,21 @@ Highlights:
 Requires CuPy with a working CUDA device, e.g. `pip install cupy-cuda12x`. If
 CuPy is not installed, importing and using UTide on the CPU is unaffected.
 
+# Performance
+
+![Benchmark: solve() time vs record length, and solve_many time vs number of series](examples/benchmark_scaling.png)
+
+*Synthetic benchmark on an RTX 4060 (WSL2). Left: single-series `solve()` —
+the harmonic-basis build dominates and grows with record length, so the GPU
+advantage rises from ~1x at 1 year to **46x at 126 years** (150 s CPU vs
+3.2 s GPU). Right: batched `solve_many` on 1-year hourly records — the
+per-series loop grows linearly while the GPU holds near-constant time
+(FP32: 0.93 s for 10,000 series, ~1,400x faster than the loop), and series
+fields larger than GPU memory stream through in chunks: **20,000 series
+(2.8 GB of data) fit in 14.3 s**. Reproduce with
+[`examples/benchmark_scaling.py`](examples/benchmark_scaling.py) — fully
+synthetic, runs anywhere.*
+
 # Use cases
 
 The GPU backend and `solve_many` pay off most when you have **many tidal time
