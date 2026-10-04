@@ -213,6 +213,23 @@ sides with FES2014 (1.16 m) against TPXO9 (0.2 m). Reproduce with
 [`examples/geodetic_cryosat2.py`](examples/geodetic_cryosat2.py) — downloads
 the data with the free `copernicusmarine` CLI, runs on CPU or GPU.*
 
+# A century of tide-gauge data
+
+The single-record path: `solve(gpu=True)` on ONE long series. The harmonic-
+basis build dominates a long fit and its cost grows with record length, so the
+GPU advantage grows too — a 127-year hourly record (1.09M samples) fits in
+seconds:
+
+![UTide single-series GPU fit of 127 years of hourly tide-gauge data from San Francisco](examples/sanfrancisco_century_demo.png)
+
+*NOAA CO-OPS station 9414290, 1,085,397 hourly samples (1900–2026), 18
+constituents from the annual SA down to 2N2 — 3.8 s on an RTX 4060 vs
+~106 s CPU. The fitted MSL trend (1.96 mm/yr) matches NOAA's published
+1.94 mm/yr, M2 (56 cm) matches the known value, and `method="robust"`
+(GPU IRLS) holds the solution through the March 2011 tsunami. Reproduce with
+[`examples/sanfrancisco_century.py`](examples/sanfrancisco_century.py) —
+downloads the data from the public CO-OPS API, runs on CPU or GPU.*
+
 # Validation
 
 UTide reproduces NOAA's **official published harmonic constants**. Analysing one
