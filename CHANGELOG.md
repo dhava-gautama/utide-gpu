@@ -4,6 +4,27 @@ This is the changelog for the `utide-gpu` fork. See the upstream project,
 [wesleybowman/UTide](https://github.com/wesleybowman/UTide), for the history of
 the base package.
 
+## v0.5.0
+
+- `solve_many(gappy=...)`: masked batched normal-equations path for series
+  with distinct NaN gap patterns (no grouping by pattern; Jacobi
+  preconditioning, residual and coefficient-magnitude gates, truncated-SVD
+  retry, VRAM-bounded series chunking). `gappy="auto"` enables it when a
+  latitude band has more than 8 distinct gap patterns.
+- Basis LRU cache (512 MB): repeated `solve_many` calls on the same time base
+  skip the harmonic-basis rebuild (~75-80% of solve time).
+- `reconstruct_many`: 2-D (u, v) support — predict a whole current field
+  from the ellipse-parameter batch result.
+- GPU scaling validated: single-series `solve` ~46x CPU at a 126-year hourly
+  record; 6,566-cell 2-D radar fit in 1.9 s; 20,000-series chunked streaming
+  in 14.3 s.
+- Real-data demo suite with verified scripts: Sentinel-6a/Jason-3n altimetry,
+  WERA HF-radar ellipses, geodetic CryoSat-2 (FES2014 error quantification),
+  a 127-year tide-gauge record (MSL trend 1.96 mm/yr vs NOAA's published
+  1.94), ERA5 atmospheric tides (S1 ~1.0 hPa, S2 ~1.3 hPa), the CO-OPS
+  station network, and hold-out prediction skill (R2 = 0.971).
+- CI: tests green on Python 3.11-3.13; pre-commit clean repo-wide.
+
 ## v0.4.1
 
 - Empirical tidal datums: `tidal_characteristics` / `tidal_characteristics_many`

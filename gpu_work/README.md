@@ -1,6 +1,6 @@
 # UTide GPU backend — internal notes
 
-Status: **working & validated, kept internal** (not published). 2026-06-07.
+Status: released as [utide-gpu](https://github.com/dhava-gautama/utide-gpu) v0.5.0.
 
 ## What was added to the package
 - `utide/_backend.py` — lazy, optional CuPy selection (`get_xp`, `asnumpy`). Importing
